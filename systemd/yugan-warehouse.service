@@ -1,0 +1,19 @@
+
+[Unit]
+Description=域感智能 - 仓库巡检系统
+After=network.target yugan-drone.service
+
+[Service]
+Type=simple
+User=yugan
+WorkingDirectory=/opt/yugan-intelligence/warehouse-inspection-system/backend
+ExecStart=/usr/bin/python3 -m uvicorn src.main:app --host 0.0.0.0 --port 8001
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=yugan-warehouse
+
+[Install]
+WantedBy=multi-user.target

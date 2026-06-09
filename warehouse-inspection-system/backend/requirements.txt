@@ -1,0 +1,16 @@
+# Warehouse Inspection System Backend
+
+fastapi>=0.104.0
+uvicorn>=0.24.0
+sqlalchemy>=2.0.23
+psycopg2-binary>=2.9.9
+redis>=5.0.1
+opencv-python>=4.8.0
+pillow>=10.1.0
+pyzbar>=0.1.9
+pyserial>=3.5
+numpy>=1.26.0
+pydantic>=2.5.0
+python-multipart>=0.0.6
+aiofiles>=23.2.1
+python-socketio>=5.10.0

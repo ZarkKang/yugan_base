@@ -1,0 +1,1501 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>仓库巡检系统 | Warehouse Inspection</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* 全局导航栏 */
+        .global-nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 50px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            padding: 0 2rem;
+            z-index: 9999;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .global-nav-left {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .global-nav-btn {
+            background: rgba(255,255,255,0.15);
+            border: none;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .global-nav-btn:hover {
+            background: rgba(255,255,255,0.25);
+            transform: translateY(-1px);
+        }
+
+        .global-nav-btn:active {
+            transform: translateY(0);
+        }
+
+        .global-nav-title {
+            flex: 1;
+            text-align: center;
+            color: white;
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .global-nav-right {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        /* 调整原有样式，给导航栏留空间 */
+        header {
+            padding: 1.25rem 0;
+            padding-top: calc(1.25rem + 50px);
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(10, 12, 16, 0.85);
+            backdrop-filter: blur(20px);
+            position: sticky;
+            top: 50px;
+            z-index: 100;
+        }
+
+        :root {
+            --bg-primary: #0a0c10;
+            --bg-secondary: #12151c;
+            --bg-tertiary: #1a1e28;
+            --bg-card: #1e2330;
+            --accent-cyan: #00d4ff;
+            --accent-green: #00ff88;
+            --accent-orange: #ff6b35;
+            --accent-red: #ff3d5a;
+            --accent-purple: #a855f7;
+            --text-primary: #f0f4f8;
+            --text-secondary: #8b95a5;
+            --text-muted: #4a5568;
+            --border-color: #2d3748;
+            --glow-cyan: 0 0 20px rgba(0, 212, 255, 0.3);
+            --glow-green: 0 0 20px rgba(0, 255, 136, 0.3);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans SC', 'JetBrains Mono', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Animated background grid */
+        .bg-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .bg-gradient {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(ellipse at 20% 20%, rgba(0, 212, 255, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 80%, rgba(168, 85, 247, 0.06) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header - 已在上方全局导航栏调整区定义，此处不再重复 */
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            box-shadow: var(--glow-cyan);
+        }
+
+        .logo-text h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, var(--text-primary), var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .logo-text span {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 100px;
+            border: 1px solid var(--border-color);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.error {
+            background: var(--accent-red);
+        }
+
+        .status-dot.warning {
+            background: var(--accent-orange);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+        }
+
+        /* Main Layout */
+        main {
+            padding: 1.5rem 0 4rem;
+            padding-top: calc(1.5rem + 50px);
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 2rem;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            position: sticky;
+            top: calc(50px + 70px);
+            height: fit-content;
+        }
+
+        .nav-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 1.5rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.875rem 1rem;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+        }
+
+        .nav-item:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .nav-item.active {
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.15), rgba(168, 85, 247, 0.1));
+            color: var(--accent-cyan);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+        }
+
+        .nav-icon {
+            font-size: 1.25rem;
+            width: 24px;
+            text-align: center;
+        }
+
+        /* Content Area */
+        .content {
+            min-height: 600px;
+        }
+
+        .section {
+            display: none;
+        }
+
+        .section.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 24px;
+            background: linear-gradient(180deg, var(--accent-cyan), var(--accent-purple));
+            border-radius: 2px;
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 1.25rem;
+            border: 1px solid var(--border-color);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple));
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(0, 212, 255, 0.3);
+        }
+
+        .stat-card:hover::before {
+            opacity: 1;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            background: linear-gradient(135deg, var(--text-primary), var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-change {
+            font-size: 0.75rem;
+            margin-top: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .stat-change.up {
+            color: var(--accent-green);
+        }
+
+        .stat-change.down {
+            color: var(--accent-red);
+        }
+
+        /* Data Table */
+        .data-table {
+            background: var(--bg-card);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+        }
+
+        .table-header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .table-title {
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            padding: 1rem 1.5rem;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-secondary);
+            background: var(--bg-tertiary);
+            font-weight: 500;
+        }
+
+        td {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.875rem;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: rgba(0, 212, 255, 0.03);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 100px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .status-badge.online {
+            background: rgba(0, 255, 136, 0.1);
+            color: var(--accent-green);
+        }
+
+        .status-badge.offline {
+            background: rgba(255, 61, 90, 0.1);
+            color: var(--accent-red);
+        }
+
+        .status-badge.warning {
+            background: rgba(255, 107, 53, 0.1);
+            color: var(--accent-orange);
+        }
+
+        .status-badge.info {
+            background: rgba(0, 212, 255, 0.1);
+            color: var(--accent-cyan);
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.625rem 1.25rem;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            font-family: inherit;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            color: var(--bg-primary);
+        }
+
+        .btn-primary:hover {
+            box-shadow: var(--glow-cyan);
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+        }
+
+        .btn-danger {
+            background: rgba(255, 61, 90, 0.1);
+            color: var(--accent-red);
+            border: 1px solid rgba(255, 61, 90, 0.3);
+        }
+
+        .btn-danger:hover {
+            background: rgba(255, 61, 90, 0.2);
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background: var(--bg-card);
+            border-radius: 20px;
+            width: 90%;
+            max-width: 500px;
+            border: 1px solid var(--border-color);
+            transform: scale(0.9) translateY(20px);
+            transition: all 0.3s;
+        }
+
+        .modal-overlay.active .modal {
+            transform: scale(1) translateY(0);
+        }
+
+        .modal-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: var(--bg-tertiary);
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .modal-close:hover {
+            background: var(--accent-red);
+            color: white;
+        }
+
+        .modal-body {
+            padding: 1.5rem;
+        }
+
+        .modal-footer {
+            padding: 1rem 1.5rem;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.75rem;
+        }
+
+        /* Form */
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+            font-family: inherit;
+            transition: all 0.2s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.1);
+        }
+
+        .form-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        /* Drone Grid */
+        .drone-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .drone-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 1.25rem;
+            border: 1px solid var(--border-color);
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .drone-card:hover {
+            border-color: var(--accent-cyan);
+            transform: translateY(-2px);
+        }
+
+        .drone-card.selected {
+            border-color: var(--accent-cyan);
+            background: rgba(0, 212, 255, 0.05);
+            box-shadow: var(--glow-cyan);
+        }
+
+        .drone-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+
+        .drone-id {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            color: var(--accent-cyan);
+        }
+
+        .drone-model {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
+        .drone-position {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.5rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .position-axis {
+            text-align: center;
+        }
+
+        .axis-label {
+            font-size: 0.625rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .axis-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--accent-green);
+        }
+
+        /* Log Console */
+        .log-console {
+            background: #0d0f14;
+            border-radius: 12px;
+            padding: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+        }
+
+        .log-entry {
+            padding: 0.25rem 0;
+            display: flex;
+            gap: 0.75rem;
+            border-bottom: 1px solid rgba(45, 55, 72, 0.5);
+        }
+
+        .log-time {
+            color: var(--text-muted);
+        }
+
+        .log-type {
+            width: 50px;
+            text-align: center;
+        }
+
+        .log-type.info { color: var(--accent-cyan); }
+        .log-type.success { color: var(--accent-green); }
+        .log-type.warning { color: var(--accent-orange); }
+        .log-type.error { color: var(--accent-red); }
+
+        .log-message {
+            color: var(--text-secondary);
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--text-secondary);
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        .empty-state h3 {
+            font-size: 1.125rem;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            top: calc(50px + 1rem);
+            right: 2rem;
+            z-index: 10001;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .toast {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 1rem 1.5rem;
+            border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            min-width: 300px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .toast.success { border-left: 3px solid var(--accent-green); }
+        .toast.error { border-left: 3px solid var(--accent-red); }
+        .toast.warning { border-left: 3px solid var(--accent-orange); }
+        .toast.info { border-left: 3px solid var(--accent-cyan); }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .drone-grid { grid-template-columns: repeat(2, 1fr); }
+            .dashboard-grid { grid-template-columns: 1fr; }
+            .sidebar { position: static; }
+        }
+
+        @media (max-width: 768px) {
+            .stats-grid { grid-template-columns: 1fr; }
+            .drone-grid { grid-template-columns: 1fr; }
+            .container { padding: 0 1rem; }
+            .section-header { flex-direction: column; gap: 1rem; align-items: flex-start; }
+        }
+    </style>
+</head>
+<body>
+    <!-- 全局导航栏 -->
+    <div class="global-nav">
+        <div class="global-nav-left">
+            <button class="global-nav-btn" onclick="window.electronAPI?.goBack()">
+                ← 返回
+            </button>
+            <button class="global-nav-btn" onclick="window.electronAPI?.goHome()">
+                🏠 主页
+            </button>
+        </div>
+        <div class="global-nav-title">
+            域感智能 - 仓库巡检系统
+        </div>
+        <div class="global-nav-right">
+        </div>
+    </div>
+
+    <div class="bg-grid"></div>
+    <div class="bg-gradient"></div>
+
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <div class="logo-icon">🚁</div>
+                    <div class="logo-text">
+                        <h1>仓库巡检系统</h1>
+                        <span>WAREHOUSE INSPECTION SYSTEM v0.1.0</span>
+                    </div>
+                </div>
+                <div class="status-indicator" id="systemStatus">
+                    <div class="status-dot"></div>
+                    <span>系统运行中</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="container">
+            <div class="dashboard-grid">
+                <aside class="sidebar">
+                    <nav class="nav-card">
+                        <div class="nav-item active" data-section="dashboard">
+                            <span class="nav-icon">📊</span>
+                            <span>数据面板</span>
+                        </div>
+                        <div class="nav-item" data-section="drones">
+                            <span class="nav-icon">🚁</span>
+                            <span>无人机管理</span>
+                        </div>
+                        <div class="nav-item" data-section="records">
+                            <span class="nav-icon">📋</span>
+                            <span>巡检记录</span>
+                        </div>
+                        <div class="nav-item" data-section="gateway">
+                            <span class="nav-icon">📡</span>
+                            <span>数据接收</span>
+                        </div>
+                        <div class="nav-item" data-section="logs">
+                            <span class="nav-icon">📟</span>
+                            <span>系统日志</span>
+                        </div>
+                    </nav>
+                </aside>
+
+                <div class="content">
+                    <!-- Dashboard Section -->
+                    <section class="section active" id="dashboard">
+                        <div class="section-header">
+                            <h2 class="section-title">数据面板</h2>
+                            <button class="btn btn-primary" onclick="refreshDashboard()">
+                                <span>🔄</span> 刷新数据
+                            </button>
+                        </div>
+
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-label">在线无人机</div>
+                                <div class="stat-value" id="droneOnline">0</div>
+                                <div class="stat-change up">↑ 实时更新</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">巡检记录</div>
+                                <div class="stat-value" id="totalRecords">0</div>
+                                <div class="stat-change up">↑ 今日新增</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">数据吞吐量</div>
+                                <div class="stat-value" id="dataThroughput">0</div>
+                                <div class="stat-change">包/秒</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">系统状态</div>
+                                <div class="stat-value" style="font-size: 1rem; color: var(--accent-green);">正常运行</div>
+                                <div class="stat-change up">Redis 已连接</div>
+                            </div>
+                        </div>
+
+                        <div class="data-table">
+                            <div class="table-header">
+                                <div class="table-title">📡 实时数据流</div>
+                            </div>
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>时间戳</th>
+                                        <th>数据类型</th>
+                                        <th>无人机</th>
+                                        <th>状态</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dataFlowTable">
+                                    <tr>
+                                        <td colspan="4" class="empty-state">
+                                            <div class="empty-state-icon">📡</div>
+                                            <h3>暂无数据</h3>
+                                            <p>等待无人机回传数据...</p>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <!-- Drones Section -->
+                    <section class="section" id="drones">
+                        <div class="section-header">
+                            <h2 class="section-title">无人机管理</h2>
+                            <button class="btn btn-primary" onclick="openDroneModal()">
+                                <span>➕</span> 注册无人机
+                            </button>
+                        </div>
+
+                        <div class="drone-grid" id="droneGrid">
+                            <!-- Drone cards will be populated here -->
+                        </div>
+
+                        <div class="data-table">
+                            <div class="table-header">
+                                <div class="table-title">📋 无人机列表</div>
+                            </div>
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>型号</th>
+                                        <th>状态</th>
+                                        <th>电池</th>
+                                        <th>信号</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="droneTable">
+                                    <tr>
+                                        <td colspan="6" class="empty-state">
+                                            <div class="empty-state-icon">🚁</div>
+                                            <h3>暂无无人机</h3>
+                                            <p>点击上方按钮注册第一架无人机</p>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <!-- Records Section -->
+                    <section class="section" id="records">
+                        <div class="section-header">
+                            <h2 class="section-title">巡检记录</h2>
+                            <button class="btn btn-secondary" onclick="exportRecords()">
+                                <span>📥</span> 导出数据
+                            </button>
+                        </div>
+
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-label">总记录数</div>
+                                <div class="stat-value">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">已完成</div>
+                                <div class="stat-value">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">进行中</div>
+                                <div class="stat-value">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">异常</div>
+                                <div class="stat-value">0</div>
+                            </div>
+                        </div>
+
+                        <div class="data-table">
+                            <div class="table-header">
+                                <div class="table-title">📋 巡检记录列表</div>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <input type="text" class="form-input" placeholder="搜索记录..." style="width: 200px;">
+                                    <select class="form-input" style="width: 150px;">
+                                        <option value="">全部状态</option>
+                                        <option value="completed">已完成</option>
+                                        <option value="in_progress">进行中</option>
+                                        <option value="abnormal">异常</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>记录ID</th>
+                                        <th>无人机</th>
+                                        <th>巡检区域</th>
+                                        <th>时间</th>
+                                        <th>状态</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recordsTable">
+                                    <tr>
+                                        <td colspan="6" class="empty-state">
+                                            <div class="empty-state-icon">📋</div>
+                                            <h3>暂无巡检记录</h3>
+                                            <p>开始巡检后记录将显示在这里</p>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <!-- Gateway Section -->
+                    <section class="section" id="gateway">
+                        <div class="section-header">
+                            <h2 class="section-title">数据接收网关</h2>
+                            <div class="status-indicator">
+                                <div class="status-dot" id="gatewayStatus"></div>
+                                <span>等待数据</span>
+                            </div>
+                        </div>
+
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-label">SBUS 数据</div>
+                                <div class="stat-value" id="sbusCount">0</div>
+                                <div class="stat-change">遥控信号包</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">RFID 扫描</div>
+                                <div class="stat-value" id="rfidCount">0</div>
+                                <div class="stat-change">标签读取</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">二维码</div>
+                                <div class="stat-value" id="qrcodeCount">0</div>
+                                <div class="stat-change">识别数量</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">视频流</div>
+                                <div class="stat-value" id="videoCount">0</div>
+                                <div class="stat-change">元数据包</div>
+                            </div>
+                        </div>
+
+                        <div class="data-table">
+                            <div class="table-header">
+                                <div class="table-title">📨 接收日志</div>
+                                <button class="btn btn-secondary" onclick="clearGatewayLogs()">
+                                    <span>🗑️</span> 清空
+                                </button>
+                            </div>
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>时间</th>
+                                        <th>数据类型</th>
+                                        <th>来源</th>
+                                        <th>内容摘要</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="gatewayTable">
+                                    <tr>
+                                        <td colspan="4" class="empty-state">
+                                            <div class="empty-state-icon">📡</div>
+                                            <h3>暂无接收数据</h3>
+                                            <p>等待无人机回传数据...</p>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <!-- Logs Section -->
+                    <section class="section" id="logs">
+                        <div class="section-header">
+                            <h2 class="section-title">系统日志</h2>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="exportLogs()">
+                                    <span>📥</span> 导出
+                                </button>
+                                <button class="btn btn-secondary" onclick="clearLogs()">
+                                    <span>🗑️</span> 清空
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="log-console" id="logConsole">
+                            <div class="log-entry">
+                                <span class="log-time">12:00:00</span>
+                                <span class="log-type success">OK</span>
+                                <span class="log-message">系统启动完成</span>
+                            </div>
+                            <div class="log-entry">
+                                <span class="log-time">12:00:01</span>
+                                <span class="log-type info">INF</span>
+                                <span class="log-message">数据库连接成功</span>
+                            </div>
+                            <div class="log-entry">
+                                <span class="log-time">12:00:02</span>
+                                <span class="log-type success">OK</span>
+                                <span class="log-message">Redis 连接成功</span>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Drone Modal -->
+    <div class="modal-overlay" id="droneModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title">注册新无人机</h3>
+                <button class="modal-close" onclick="closeDroneModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">无人机编号</label>
+                    <input type="text" class="form-input" id="droneCode" placeholder="D-001">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">型号</label>
+                    <input type="text" class="form-input" id="droneModel" placeholder="Phantom 4 Pro">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">描述</label>
+                    <input type="text" class="form-input" id="droneDesc" placeholder="仓库A区巡检">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeDroneModal()">取消</button>
+                <button class="btn btn-primary" onclick="createDrone()">确认注册</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        // 动态 API 配置
+        let API_BASE = 'http://localhost:8001/api/v1';
+
+        // 初始化 API 地址（现在直接使用完整API路径，无需拼接）
+        async function initApiBase() {
+            if (window.electronAPI && window.electronAPI.getBackendUrl) {
+                try {
+                    const url = await window.electronAPI.getBackendUrl('warehouse-inspection');
+                    if (url) {
+                        API_BASE = url;
+                        console.log('使用 Electron 动态 API 地址:', API_BASE);
+                        return;
+                    }
+                } catch (e) {
+                    console.warn('获取动态 API 地址失败，使用默认地址:', e);
+                }
+            }
+            // 默认回退到直连地址
+            API_BASE = 'http://localhost:8001/api/v1';
+            console.log('使用默认 API 地址:', API_BASE);
+        }
+
+        // Navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const section = item.dataset.section;
+                
+                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                item.classList.add('active');
+                
+                document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+                document.getElementById(section).classList.add('active');
+            });
+        });
+
+        // Toast notifications
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `
+                <span>${type === 'success' ? '✓' : type === 'error' ? '✕' : type === 'warning' ? '⚠' : 'ℹ'}</span>
+                <span>${message}</span>
+            `;
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.animation = 'slideIn 0.3s ease reverse';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // Drone Modal
+        function openDroneModal() {
+            document.getElementById('droneModal').classList.add('active');
+        }
+
+        function closeDroneModal() {
+            document.getElementById('droneModal').classList.remove('active');
+        }
+
+        async function createDrone() {
+            const code = document.getElementById('droneCode').value;
+            const model = document.getElementById('droneModel').value;
+            const desc = document.getElementById('droneDesc').value;
+
+            if (!code || !model) {
+                showToast('请填写必填字段', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/drones/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code, model, description: desc })
+                });
+                
+                if (response.ok) {
+                    showToast('无人机注册成功', 'success');
+                    closeDroneModal();
+                    loadDrones();
+                } else {
+                    throw new Error('注册失败');
+                }
+            } catch (error) {
+                showToast('注册失败: ' + error.message, 'error');
+            }
+        }
+
+        // Load Drones
+        async function loadDrones() {
+            try {
+                const response = await fetch(`${API_BASE}/drones/`);
+                if (response.ok) {
+                    const drones = await response.json();
+                    updateDroneDisplay(drones);
+                }
+            } catch (error) {
+                console.log('API not available, using demo mode');
+                updateDroneDisplay([]);
+            }
+        }
+
+        function updateDroneDisplay(drones) {
+            const grid = document.getElementById('droneGrid');
+            const table = document.getElementById('droneTable');
+            
+            if (drones.length === 0) {
+                // Demo mode with sample data
+                grid.innerHTML = `
+                    <div class="drone-card selected">
+                        <div class="drone-header">
+                            <div>
+                                <div class="drone-id">D-001</div>
+                                <div class="drone-model">Phantom 4 Pro V2.0</div>
+                            </div>
+                            <span class="status-badge online">在线</span>
+                        </div>
+                        <div style="color: var(--text-secondary); font-size: 0.875rem;">仓库A区巡检</div>
+                        <div class="drone-position">
+                            <div class="position-axis">
+                                <div class="axis-label">X</div>
+                                <div class="axis-value">12.5</div>
+                            </div>
+                            <div class="position-axis">
+                                <div class="axis-label">Y</div>
+                                <div class="axis-value">8.3</div>
+                            </div>
+                            <div class="position-axis">
+                                <div class="axis-label">Z</div>
+                                <div class="axis-value">5.0</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="drone-card">
+                        <div class="drone-header">
+                            <div>
+                                <div class="drone-id">D-002</div>
+                                <div class="drone-model">Mavic 3 Enterprise</div>
+                            </div>
+                        <span class="status-badge online">在线</span>
+                        </div>
+                        <div style="color: var(--text-secondary); font-size: 0.875rem;">仓库B区巡检</div>
+                        <div class="drone-position">
+                            <div class="position-axis">
+                                <div class="axis-label">X</div>
+                                <div class="axis-value">0.0</div>
+                            </div>
+                            <div class="position-axis">
+                                <div class="axis-label">Y</div>
+                                <div class="axis-value">0.0</div>
+                            </div>
+                            <div class="position-axis">
+                                <div class="axis-label">Z</div>
+                                <div class="axis-value">0.0</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="drone-card">
+                        <div class="drone-header">
+                            <div>
+                                <div class="drone-id">D-003</div>
+                                <div class="drone-model">Autel EVO II Pro</div>
+                            </div>
+                            <span class="status-badge offline">离线</span>
+                        </div>
+                        <div style="color: var(--text-secondary); font-size: 0.875rem;">备用无人机</div>
+                        <div class="drone-position">
+                            <div class="position-axis">
+                                <div class="axis-label">X</div>
+                                <div class="axis-value">--</div>
+                            </div>
+                            <div class="position-axis">
+                                <div class="axis-label">Y</div>
+                                <div class="axis-value">--</div>
+                            </div>
+                            <div class="position-axis">
+                                <div class="axis-label">Z</div>
+                                <div class="axis-value">--</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                table.innerHTML = `
+                    <tr>
+                        <td style="font-family: 'JetBrains Mono', monospace; color: var(--accent-cyan);">D-001</td>
+                        <td>Phantom 4 Pro V2.0</td>
+                        <td><span class="status-badge online">在线</span></td>
+                        <td>87%</td>
+                        <td>强</td>
+                        <td>
+                            <button class="btn btn-secondary" style="padding: 0.375rem 0.75rem;">详情</button>
+                            <button class="btn btn-danger" style="padding: 0.375rem 0.75rem;">删除</button>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="font-family: 'JetBrains Mono', monospace; color: var(--accent-cyan);">D-002</td>
+                        <td>Mavic 3 Enterprise</td>
+                        <td><span class="status-badge online">在线</span></td>
+                        <td>92%</td>
+                        <td>强</td>
+                        <td>
+                            <button class="btn btn-secondary" style="padding: 0.375rem 0.75rem;">详情</button>
+                            <button class="btn btn-danger" style="padding: 0.375rem 0.75rem;">删除</button>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="font-family: 'JetBrains Mono', monospace; color: var(--accent-cyan);">D-003</td>
+                        <td>Autel EVO II Pro</td>
+                        <td><span class="status-badge offline">离线</span></td>
+                        <td>0%</td>
+                        <td>无</td>
+                        <td>
+                            <button class="btn btn-secondary" style="padding: 0.375rem 0.75rem;">详情</button>
+                            <button class="btn btn-danger" style="padding: 0.375rem 0.75rem;">删除</button>
+                        </td>
+                    </tr>
+                `;
+                
+                document.getElementById('droneOnline').textContent = '2';
+            } else {
+                // Real data from API
+                const onlineCount = drones.filter(d => d.status === 'online').length;
+                document.getElementById('droneOnline').textContent = onlineCount;
+            }
+        }
+
+        // Refresh Dashboard
+        async function refreshDashboard() {
+            showToast('正在刷新数据...', 'info');
+            await loadDrones();
+            setTimeout(() => {
+                showToast('数据已更新', 'success');
+            }, 500);
+        }
+
+        // Export functions
+        function exportRecords() {
+            showToast('导出功能开发中', 'info');
+        }
+
+        function exportLogs() {
+            showToast('导出功能开发中', 'info');
+        }
+
+        function clearLogs() {
+            document.getElementById('logConsole').innerHTML = '';
+            addLog('日志已清空', 'info');
+        }
+
+        function clearGatewayLogs() {
+            document.getElementById('gatewayTable').innerHTML = `
+                <tr>
+                    <td colspan="4" class="empty-state">
+                        <div class="empty-state-icon">📡</div>
+                        <h3>暂无接收数据</h3>
+                        <p>等待无人机回传数据...</p>
+                    </td>
+                </tr>
+            `;
+            showToast('日志已清空', 'success');
+        }
+
+        // Log helper
+        function addLog(message, type = 'info') {
+            const console = document.getElementById('logConsole');
+            const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+            const typeLabel = type === 'success' ? 'OK' : type === 'error' ? 'ERR' : type === 'warning' ? 'WRN' : 'INF';
+            
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `
+                <span class="log-time">${time}</span>
+                <span class="log-type ${type}">${typeLabel}</span>
+                <span class="log-message">${message}</span>
+            `;
+            console.insertBefore(entry, console.firstChild);
+        }
+
+        // Health check（使用动态API基础地址）
+        async function checkHealth() {
+            try {
+                // 从 API_BASE 推导出 base URL（去掉路径部分）
+                const baseUrl = API_BASE.replace(/\/api\/v1$/, '').replace(/\/api\/warehouse$/, '');
+                const healthUrl = `${baseUrl}/health`;
+                const response = await fetch(healthUrl);
+                if (response.ok) {
+                    const data = await response.json();
+                    const statusEl = document.getElementById('systemStatus');
+                    const gatewayEl = document.getElementById('gatewayStatus');
+
+                    if (data.status === 'healthy') {
+                        statusEl.querySelector('span').textContent = '系统正常';
+                        statusEl.querySelector('.status-dot').className = 'status-dot';
+                        gatewayEl.className = 'status-dot';
+                    } else {
+                        statusEl.querySelector('span').textContent = '系统异常';
+                        statusEl.querySelector('.status-dot').className = 'status-dot warning';
+                        gatewayEl.className = 'status-dot warning';
+                    }
+                }
+            } catch (error) {
+                const statusEl = document.getElementById('systemStatus');
+                statusEl.querySelector('span').textContent = '后端未连接';
+                statusEl.querySelector('.status-dot').className = 'status-dot error';
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            await initApiBase();
+            loadDrones();
+            checkHealth();
+            addLog('前端界面初始化完成', 'success');
+            
+            // Periodic health check
+            setInterval(checkHealth, 30000);
+        });
+    </script>
+</body>
+</html>

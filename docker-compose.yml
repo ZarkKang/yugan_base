@@ -1,0 +1,52 @@
+
+version: '3.8'
+name: yugan-intelligence
+
+services:
+  # 无人机数据系统后端
+  drone-db:
+    build:
+      context: ./drone-db-prototype/backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./drone-db-prototype/backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - yugan-network
+
+  # 仓库巡检系统后端
+  warehouse:
+    build:
+      context: ./warehouse-inspection-system/backend
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./warehouse-inspection-system/backend:/app
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - yugan-network
+
+  # API网关
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - IS_DOCKER=true
+    depends_on:
+      - drone-db
+      - warehouse
+    volumes:
+      - ./api-gateway:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+    networks:
+      - yugan-network
+
+networks:
+  yugan-network:
+    driver: bridge

@@ -1,0 +1,69 @@
+"""
+配置文件 - 应用配置管理
+"""
+from pydantic_settings import BaseSettings
+from functools import lru_cache
+
+
+class Settings(BaseSettings):
+    # 应用配置
+    APP_NAME: str = "Warehouse Inspection System"
+    APP_VERSION: str = "0.1.0"
+    DEBUG: bool = True
+
+    # 数据库配置（根据你的实际环境修改）
+    POSTGRES_HOST: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_USER: str = "postgres"
+    POSTGRES_PASSWORD: str = "postgres"
+    POSTGRES_DB: str = "warehouse_inspection"
+
+    # Redis配置
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
+
+    # 串口配置（如果需要）
+    SERIAL_PORT: str = "/dev/ttyUSB0"
+    SERIAL_BAUDRATE: int = 9600
+
+    # 以太网配置
+    ETHERNET_HOST: str = "192.168.1.100"
+    ETHERNET_PORT: int = 8080
+
+    # 安全配置
+    SECRET_KEY: str = "your-secret-key-here"
+
+    # 日志配置
+    LOG_LEVEL: str = "INFO"
+
+    # API配置
+    API_PREFIX: str = "/api/v1"
+
+    # CORS配置
+    CORS_ORIGINS: str = '["http://localhost:3000"]'
+
+    # 直接使用的URL配置（可选，会覆盖上面的分立配置）
+    DATABASE_URL: str = ""
+    REDIS_URL: str = ""
+
+
+    @property
+    def DATABASE_URL(self) -> str:
+        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+
+    @property
+    def REDIS_URL(self) -> str:
+        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()

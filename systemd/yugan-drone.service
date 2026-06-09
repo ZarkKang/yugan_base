@@ -1,0 +1,20 @@
+
+[Unit]
+Description=域感智能 - 无人机数据系统
+After=network.target
+
+[Service]
+Type=simple
+User=yugan
+WorkingDirectory=/opt/yugan-intelligence/drone-db-prototype/backend
+ExecStart=/usr/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=10
+
+# 日志配置
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=yugan-drone
+
+[Install]
+WantedBy=multi-user.target

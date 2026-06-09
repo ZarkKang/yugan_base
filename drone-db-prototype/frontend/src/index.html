@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>域感智能 - 无人机数据管理系统</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; }
+        
+        /* 全局导航栏 */
+        .global-nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 50px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            z-index: 9999;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+        
+        .global-nav-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .global-nav-btn {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+        
+        .global-nav-btn:hover {
+            background: rgba(255,255,255,0.3);
+            transform: translateY(-1px);
+        }
+        
+        .global-nav-btn:active {
+            transform: translateY(0);
+        }
+        
+        .global-nav-title {
+            flex: 1;
+            text-align: center;
+            color: white;
+            font-weight: 600;
+            font-size: 16px;
+        }
+        
+        .global-nav-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        /* 主内容区域（要给导航栏留空间） */
+        .main-content {
+            margin-top: 50px;
+        }
+        
+        /* 原有样式 */
+        .header { background: #1890ff; color: white; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 20px; }
+        .user-info { font-size: 14px; }
+        .container { display: flex; min-height: calc(100vh - 60px - 50px); }
+        .sidebar { width: 200px; background: white; padding: 20px 0; }
+        .nav-item { padding: 12px 30px; cursor: pointer; color: #666; transition: all 0.3s; }
+        .nav-item:hover, .nav-item.active { background: #e6f7ff; color: #1890ff; }
+        .content { flex: 1; padding: 30px; }
+        .card { background: white; border-radius: 8px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .card h2 { font-size: 18px; margin-bottom: 20px; color: #333; }
+        .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; transition: all 0.3s; }
+        .btn-primary { background: #1890ff; color: white; }
+        .btn-primary:hover { background: #40a9ff; }
+        .btn-danger { background: #ff4d4f; color: white; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; color: #666; font-size: 14px; }
+        .form-group input, .form-group select { width: 100%; padding: 8px 12px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 14px; }
+        .form-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #f0f0f0; }
+        th { background: #fafafa; color: #666; font-weight: 500; }
+        .status { padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+        .status.idle { background: #f6ffed; color: #52c41a; }
+        .status.flying { background: #e6f7ff; color: #1890ff; }
+        .status.maintenance { background: #fff7e6; color: #faad14; }
+        .login-container { display: flex; justify-content: center; align-items: center; height: 100vh; }
+        .login-box { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.1); width: 360px; }
+        .login-box h1 { text-align: center; margin-bottom: 30px; color: #1890ff; }
+        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: white; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .stat-card .number { font-size: 32px; color: #1890ff; font-weight: bold; }
+        .stat-card .label { color: #666; margin-top: 5px; }
+        .hidden { display: none; }
+        .error-msg { color: #ff4d4f; padding: 10px; background: #fff2f0; border: 1px solid #ffccc7; border-radius: 4px; margin-bottom: 15px; }
+        .loading { text-align: center; padding: 40px; color: #999; }
+    </style>
+</head>
+<body>
+    <!-- 全局导航栏 -->
+    <div class="global-nav">
+        <div class="global-nav-left">
+            <button class="global-nav-btn" onclick="window.electronAPI?.goBack()">
+                ← 返回
+            </button>
+            <button class="global-nav-btn" onclick="window.electronAPI?.goHome()">
+                🏠 主页
+            </button>
+        </div>
+        <div class="global-nav-title">
+            域感智能 - 无人机数据管理系统
+        </div>
+        <div class="global-nav-right">
+        </div>
+    </div>
+
+    <!-- 主内容区域 -->
+    <div class="main-content">
+        <!-- 登录页面 -->
+        <div id="loginPage" class="login-container">
+            <div class="login-box">
+                <h1>域感智能</h1>
+                <div id="loginError" class="error-msg hidden"></div>
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label>用户名</label>
+                        <input type="text" id="username" required>
+                    </div>
+                    <div class="form-group">
+                        <label>密码</label>
+                        <input type="password" id="password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width:100%;margin-top:10px;">登录</button>
+                </form>
+                <p style="text-align:center;margin-top:15px;color:#666;font-size:12px;">
+                    默认账号: admin / admin123
+                </p>
+            </div>
+        </div>
+
+        <!-- 主应用 -->
+        <div id="mainApp" class="hidden">
+            <div class="header">
+                <h1>域感智能 - 无人机数据管理系统</h1>
+                <div class="user-info">
+                    <span id="currentUser"></span> | <a href="#" onclick="logout()" style="color:white;">退出</a>
+                </div>
+            </div>
+            <div class="container">
+                <div class="sidebar">
+                    <div class="nav-item active" onclick="showPage('dashboard')">数据概览</div>
+                    <div class="nav-item" onclick="showPage('skus')">SKU管理</div>
+                    <div class="nav-item" onclick="showPage('drones')">无人机</div>
+                    <div class="nav-item" onclick="showPage('videos')">视频数据</div>
+                    <div class="nav-item" onclick="showPage('images')">图片数据</div>
+                    <div class="nav-item" onclick="showPage('rfid')">RFID数据</div>
+                </div>
+                <div class="content">
+                    <!-- Dashboard -->
+                    <div id="dashboardPage">
+                        <div class="stats">
+                            <div class="stat-card"><div class="number" id="droneCount">-</div><div class="label">无人机</div></div>
+                            <div class="stat-card"><div class="number" id="skuCount">-</div><div class="label">SKU</div></div>
+                            <div class="stat-card"><div class="number" id="videoCount">-</div><div class="label">视频</div></div>
+                            <div class="stat-card"><div class="number" id="rfidCount">-</div><div class="label">RFID</div></div>
+                        </div>
+                        <div id="dashboardLoading" class="loading">加载中...</div>
+                    </div>
+
+                    <!-- SKU管理 -->
+                    <div id="skusPage" class="hidden">
+                        <div class="card">
+                            <h2>SKU管理</h2>
+                            <button class="btn btn-primary" onclick="showSkuModal()">新增SKU</button>
+                            <table style="margin-top:20px;">
+                                <thead><tr><th>SKU编码</th><th>名称</th><th>分类</th><th>单位</th><th>状态</th><th>操作</th></tr></thead>
+                                <tbody id="skuTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- 无人机管理 -->
+                    <div id="dronesPage" class="hidden">
+                        <div class="card">
+                            <h2>无人机管理</h2>
+                            <button class="btn btn-primary" onclick="showDroneModal()">新增无人机</button>
+                            <table style="margin-top:20px;">
+                                <thead><tr><th>编号</th><th>名称</th><th>型号</th><th>状态</th><th>位置</th><th>操作</th></tr></thead>
+                                <tbody id="droneTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- 视频数据 -->
+                    <div id="videosPage" class="hidden">
+                        <div class="card">
+                            <h2>视频数据</h2>
+                            <div style="margin-bottom:15px;">
+                                <input type="file" id="videoFile" accept="video/*">
+                                <input type="number" id="videoDroneId" placeholder="无人机ID" style="width:120px;margin-left:10px;">
+                                <button class="btn btn-primary" onclick="uploadVideo()">上传</button>
+                            </div>
+                            <table>
+                                <thead><tr><th>文件名</th><th>大小</th><th>无人机ID</th><th>位置</th><th>上传时间</th><th>操作</th></tr></thead>
+                                <tbody id="videoTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- 图片数据 -->
+                    <div id="imagesPage" class="hidden">
+                        <div class="card">
+                            <h2>图片数据</h2>
+                            <div style="margin-bottom:15px;">
+                                <input type="file" id="imageFile" accept="image/*">
+                                <input type="number" id="imageDroneId" placeholder="无人机ID" style="width:120px;margin-left:10px;">
+                                <button class="btn btn-primary" onclick="uploadImage()">上传</button>
+                            </div>
+                            <table>
+                                <thead><tr><th>文件名</th><th>大小</th><th>无人机ID</th><th>位置</th><th>上传时间</th><th>操作</th></tr></thead>
+                                <tbody id="imageTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- RFID数据 -->
+                    <div id="rfidPage" class="hidden">
+                        <div class="card">
+                            <h2>RFID数据</h2>
+                            <button class="btn btn-primary" onclick="showRfidModal()">新增RFID</button>
+                            <table style="margin-top:20px;">
+                                <thead><tr><th>标签ID</th><th>类型</th><th>位置</th><th>信号强度</th><th>无人机ID</th><th>操作</th></tr></thead>
+                                <tbody id="rfidTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal" class="hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000;">
+        <div class="card" style="width:500px;max-height:80vh;overflow:auto;">
+            <h2 id="modalTitle">弹窗</h2>
+            <div id="modalContent"></div>
+            <div style="margin-top:20px;text-align:right;">
+                <button class="btn" onclick="closeModal()" style="margin-right:10px;">取消</button>
+                <button class="btn btn-primary" id="modalConfirm">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API 配置
+        let API_BASE = '';
+        let token = localStorage.getItem('token');
+
+        // 获取 API 地址（现在直接使用完整API路径，无需拼接）
+        async function initApiBase() {
+            // 如果有 Electron API，尝试获取动态地址
+            if (window.electronAPI && window.electronAPI.getBackendUrl) {
+                try {
+                    const url = await window.electronAPI.getBackendUrl('drone-db');
+                    if (url) {
+                        // API 网关路径已包含在返回值中
+                        API_BASE = url;
+                        console.log('使用 Electron 动态 API 地址:', API_BASE);
+                        return;
+                    }
+                } catch (e) {
+                    console.warn('获取动态 API 地址失败:', e);
+                }
+            }
+            // 默认回退到直连后端（开发模式）
+            API_BASE = 'http://localhost:8000/api';
+            console.log('使用默认 API 地址:', API_BASE);
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log('开始初始化...');
+            // 直接删除 Modal 元素，彻底解决问题
+            const modal = document.getElementById('modal');
+            if (modal) {
+                modal.remove();
+                console.log('Modal 已删除');
+            }
+            await initApiBase();
+            console.log('API_BASE:', API_BASE);
+
+            // 跳过登录，直接使用管理员身份进入
+            token = 'admin-token-bypass';
+            document.getElementById('currentUser').textContent = '管理员';
+            showMainApp();
+            loadDashboard();
+            console.log('已跳过登录，使用管理员身份访问');
+        });
+
+        // 登录
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('loginError');
+            
+            console.log('尝试登录:', username);
+            
+            try {
+                const res = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: `username=${username}&password=${password}`
+                });
+                
+                console.log('登录响应状态:', res.status);
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    token = data.access_token;
+                    localStorage.setItem('token', token);
+                    errorDiv.classList.add('hidden');
+                    showMainApp();
+                    loadDashboard();
+                } else {
+                    const errorText = await res.text();
+                    console.error('登录失败:', errorText);
+                    errorDiv.textContent = '用户名或密码错误';
+                    errorDiv.classList.remove('hidden');
+                }
+            } catch (err) {
+                console.error('连接服务器失败:', err);
+                errorDiv.textContent = '连接服务器失败，请检查后端服务是否运行';
+                errorDiv.classList.remove('hidden');
+            }
+        });
+
+        function logout() {
+            token = null;
+            localStorage.removeItem('token');
+            showLoginPage();
+        }
+
+        function showLoginPage() {
+            document.getElementById('loginPage').classList.remove('hidden');
+            document.getElementById('mainApp').classList.add('hidden');
+        }
+
+        function showMainApp() {
+            document.getElementById('loginPage').classList.add('hidden');
+            document.getElementById('mainApp').classList.remove('hidden');
+        }
+
+        function showPage(page) {
+            document.querySelectorAll('.content > div').forEach(p => p.classList.add('hidden'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById(`${page}Page`).classList.remove('hidden');
+            if (event.target) event.target.classList.add('active');
+            
+            if (page === 'skus') loadSkus();
+            if (page === 'drones') loadDrones();
+            if (page === 'videos') loadVideos();
+            if (page === 'images') loadImages();
+            if (page === 'rfid') loadRfids();
+        }
+
+        async function api(endpoint, options = {}) {
+            const headers = { 'Authorization': `Bearer ${token}` };
+            if (options.body && typeof options.body === 'object') {
+                headers['Content-Type'] = 'application/json';
+                options.body = JSON.stringify(options.body);
+            }
+            const res = await fetch(`${API_BASE}${endpoint}`, { ...options, headers: { ...headers, ...options.headers } });
+            if (res.status === 401) { logout(); throw new Error('Unauthorized'); }
+            return res.json();
+        }
+
+        // Dashboard
+        async function loadDashboard() {
+            document.getElementById('dashboardLoading').style.display = 'block';
+            try {
+                const [drones, skus, videos, rfids] = await Promise.all([
+                    api('/drones/').catch(() => []),
+                    api('/skus/').catch(() => []),
+                    api('/videos/').catch(() => []),
+                    api('/rfid/').catch(() => [])
+                ]);
+                document.getElementById('droneCount').textContent = drones.length || 0;
+                document.getElementById('skuCount').textContent = skus.length || 0;
+                document.getElementById('videoCount').textContent = videos.length || 0;
+                document.getElementById('rfidCount').textContent = rfids.length || 0;
+                console.log('Dashboard 加载成功');
+            } catch (err) {
+                console.error('Dashboard 加载失败:', err);
+            } finally {
+                document.getElementById('dashboardLoading').style.display = 'none';
+            }
+        }
+
+        // SKU
+        async function loadSkus() {
+            const skus = await api('/skus/');
+            const tbody = document.getElementById('skuTable');
+            if (!skus || skus.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">暂无数据</td></tr>';
+                return;
+            }
+            tbody.innerHTML = skus.map(s => `
+                <tr>
+                    <td>${s.sku_code}</td>
+                    <td>${s.name}</td>
+                    <td>${s.category || '-'}</td>
+                    <td>${s.unit}</td>
+                    <td>${s.is_active ? '启用' : '禁用'}</td>
+                    <td><button class="btn btn-danger" onclick="deleteSku(${s.id})">删除</button></td>
+                </tr>
+            `).join('');
+        }
+
+        function showSkuModal(id = null) {
+            document.getElementById('modalTitle').textContent = id ? '编辑SKU' : '新增SKU';
+            document.getElementById('modalContent').innerHTML = `
+                <div class="form-group"><label>SKU编码</label><input type="text" id="skuCode"></div>
+                <div class="form-group"><label>名称</label><input type="text" id="skuName"></div>
+                <div class="form-group"><label>分类</label><input type="text" id="skuCategory"></div>
+                <div class="form-group"><label>单位</label><input type="text" id="skuUnit" value="个"></div>
+            `;
+            document.getElementById('modalConfirm').onclick = () => saveSku(id);
+            document.getElementById('modal').classList.remove('hidden');
+        }
+
+        async function saveSku(id) {
+            const data = {
+                sku_code: document.getElementById('skuCode').value,
+                name: document.getElementById('skuName').value,
+                category: document.getElementById('skuCategory').value,
+                unit: document.getElementById('skuUnit').value
+            };
+            if (id) {
+                await api(`/skus/${id}`, { method: 'PUT', body: data });
+            } else {
+                await api('/skus/', { method: 'POST', body: data });
+            }
+            closeModal();
+            loadSkus();
+        }
+
+        async function deleteSku(id) {
+            if (confirm('确定删除?')) {
+                await api(`/skus/${id}`, { method: 'DELETE' });
+                loadSkus();
+            }
+        }
+
+        // 无人机
+        async function loadDrones() {
+            const drones = await api('/drones/');
+            const tbody = document.getElementById('droneTable');
+            if (!drones || drones.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">暂无数据</td></tr>';
+                return;
+            }
+            tbody.innerHTML = drones.map(d => `
+                <tr>
+                    <td>${d.drone_code}</td>
+                    <td>${d.name}</td>
+                    <td>${d.model || '-'}</td>
+                    <td><span class="status ${d.status}">${d.status}</span></td>
+                    <td>${d.latitude && d.longitude ? `${d.latitude},${d.longitude}` : '-'}</td>
+                    <td><button class="btn btn-danger" onclick="deleteDrone(${d.id})">删除</button></td>
+                </tr>
+            `).join('');
+        }
+
+        function showDroneModal() {
+            document.getElementById('modalTitle').textContent = '新增无人机';
+            document.getElementById('modalContent').innerHTML = `
+                <div class="form-row">
+                    <div class="form-group"><label>无人机编号</label><input type="text" id="droneCode"></div>
+                    <div class="form-group"><label>名称</label><input type="text" id="droneName"></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group"><label>型号</label><input type="text" id="droneModel"></div>
+                    <div class="form-group"><label>制造商</label><input type="text" id="droneManufacturer"></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group"><label>纬度</label><input type="number" step="any" id="droneLat"></div>
+                    <div class="form-group"><label>经度</label><input type="number" step="any" id="droneLng"></div>
+                </div>
+            `;
+            document.getElementById('modalConfirm').onclick = () => saveDrone();
+            document.getElementById('modal').classList.remove('hidden');
+        }
+
+        async function saveDrone() {
+            const data = {
+                drone_code: document.getElementById('droneCode').value,
+                name: document.getElementById('droneName').value,
+                model: document.getElementById('droneModel').value,
+                manufacturer: document.getElementById('droneManufacturer').value,
+                latitude: parseFloat(document.getElementById('droneLat').value) || null,
+                longitude: parseFloat(document.getElementById('droneLng').value) || null
+            };
+            await api('/drones/', { method: 'POST', body: data });
+            closeModal();
+            loadDrones();
+        }
+
+        async function deleteDrone(id) {
+            if (confirm('确定删除?')) {
+                await api(`/drones/${id}`, { method: 'DELETE' });
+                loadDrones();
+            }
+        }
+
+        // 视频
+        async function loadVideos() {
+            const videos = await api('/videos/');
+            const tbody = document.getElementById('videoTable');
+            if (!videos || videos.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">暂无数据</td></tr>';
+                return;
+            }
+            tbody.innerHTML = videos.map(v => `
+                <tr>
+                    <td>${v.file_name}</td>
+                    <td>${(v.file_size/1024/1024).toFixed(2)} MB</td>
+                    <td>${v.drone_id || '-'}</td>
+                    <td>${v.latitude && v.longitude ? `${v.latitude},${v.longitude}` : '-'}</td>
+                    <td>${new Date(v.created_at).toLocaleString()}</td>
+                    <td><button class="btn btn-danger" onclick="deleteVideo(${v.id})">删除</button></td>
+                </tr>
+            `).join('');
+        }
+
+        async function uploadVideo() {
+            const fileInput = document.getElementById('videoFile');
+            const droneId = document.getElementById('videoDroneId').value;
+            if (!fileInput.files[0]) return alert('请选择文件');
+            
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            if (droneId) formData.append('drone_id', droneId);
+            
+            const res = await fetch(`${API_BASE}/videos/`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+                body: formData
+            });
+            if (res.ok) {
+                fileInput.value = '';
+                loadVideos();
+            } else {
+                alert('上传失败');
+            }
+        }
+
+        async function deleteVideo(id) {
+            if (confirm('确定删除?')) {
+                await api(`/videos/${id}`, { method: 'DELETE' });
+                loadVideos();
+            }
+        }
+
+        // 图片
+        async function loadImages() {
+            const images = await api('/images/');
+            const tbody = document.getElementById('imageTable');
+            if (!images || images.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">暂无数据</td></tr>';
+                return;
+            }
+            tbody.innerHTML = images.map(i => `
+                <tr>
+                    <td>${i.file_name}</td>
+                    <td>${(i.file_size/1024).toFixed(2)} KB</td>
+                    <td>${i.drone_id || '-'}</td>
+                    <td>${i.latitude && i.longitude ? `${i.latitude},${i.longitude}` : '-'}</td>
+                    <td>${new Date(i.created_at).toLocaleString()}</td>
+                    <td><button class="btn btn-danger" onclick="deleteImage(${i.id})">删除</button></td>
+                </tr>
+            `).join('');
+        }
+
+        async function uploadImage() {
+            const fileInput = document.getElementById('imageFile');
+            const droneId = document.getElementById('imageDroneId').value;
+            if (!fileInput.files[0]) return alert('请选择文件');
+            
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            if (droneId) formData.append('drone_id', droneId);
+            
+            const res = await fetch(`${API_BASE}/images/`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+                body: formData
+            });
+            if (res.ok) {
+                fileInput.value = '';
+                loadImages();
+            } else {
+                alert('上传失败');
+            }
+        }
+
+        async function deleteImage(id) {
+            if (confirm('确定删除?')) {
+                await api(`/images/${id}`, { method: 'DELETE' });
+                loadImages();
+            }
+        }
+
+        // RFID
+        async function loadRfids() {
+            const rfids = await api('/rfid/');
+            const tbody = document.getElementById('rfidTable');
+            if (!rfids || rfids.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">暂无数据</td></tr>';
+                return;
+            }
+            tbody.innerHTML = rfids.map(r => `
+                <tr>
+                    <td>${r.rfid_tag}</td>
+                    <td>${r.tag_type || '-'}</td>
+                    <td>${r.latitude && r.longitude ? `${r.latitude},${r.longitude}` : '-'}</td>
+                    <td>${r.signal_strength || '-'}</td>
+                    <td>${r.drone_id || '-'}</td>
+                    <td><button class="btn btn-danger" onclick="deleteRfid(${r.id})">删除</button></td>
+                </tr>
+            `).join('');
+        }
+
+        function showRfidModal() {
+            document.getElementById('modalTitle').textContent = '新增RFID';
+            document.getElementById('modalContent').innerHTML = `
+                <div class="form-group"><label>RFID标签ID</label><input type="text" id="rfidTag"></div>
+                <div class="form-group"><label>类型</label><input type="text" id="rfidType"></div>
+                <div class="form-row">
+                    <div class="form-group"><label>纬度</label><input type="number" step="any" id="rfidLat"></div>
+                    <div class="form-group"><label>经度</label><input type="number" step="any" id="rfidLng"></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group"><label>无人机ID</label><input type="number" id="rfidDroneId"></div>
+                    <div class="form-group"><label>信号强度</label><input type="number" step="any" id="rfidSignal"></div>
+                </div>
+            `;
+            document.getElementById('modalConfirm').onclick = () => saveRfid();
+            document.getElementById('modal').classList.remove('hidden');
+        }
+
+        async function saveRfid() {
+            const data = {
+                rfid_tag: document.getElementById('rfidTag').value,
+                tag_type: document.getElementById('rfidType').value,
+                latitude: parseFloat(document.getElementById('rfidLat').value) || null,
+                longitude: parseFloat(document.getElementById('rfidLng').value) || null,
+                drone_id: parseInt(document.getElementById('rfidDroneId').value) || null,
+                signal_strength: parseFloat(document.getElementById('rfidSignal').value) || null
+            };
+            await api('/rfid/', { method: 'POST', body: data });
+            closeModal();
+            loadRfids();
+        }
+
+        async function deleteRfid(id) {
+            if (confirm('确定删除?')) {
+                await api(`/rfid/${id}`, { method: 'DELETE' });
+                loadRfids();
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('modal').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
