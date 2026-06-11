@@ -9,7 +9,7 @@ from .config import settings
 from .database import get_db
 from ..models.user import User
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__truncate_error=False)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
@@ -18,7 +18,8 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    # bcrypt 限制密码最多 72 字节，提前截断
+    return pwd_context.hash(password[:72])
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

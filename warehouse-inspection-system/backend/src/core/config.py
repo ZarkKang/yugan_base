@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = True
 
-    # 数据库配置（根据你的实际环境修改）
+    # 数据库配置
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str = "postgres"
@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
 
-    # 串口配置（如果需要）
+    # 串口配置
     SERIAL_PORT: str = "/dev/ttyUSB0"
     SERIAL_BAUDRATE: int = 9600
 
@@ -43,18 +43,20 @@ class Settings(BaseSettings):
     # CORS配置
     CORS_ORIGINS: str = '["http://localhost:3000"]'
 
-    # 直接使用的URL配置（可选，会覆盖上面的分立配置）
+    # 覆盖用URL（留空则自动生）
     DATABASE_URL: str = ""
     REDIS_URL: str = ""
 
-
-    @property
-    def DATABASE_URL(self) -> str:
-        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-
-    @property
-    def REDIS_URL(self) -> str:
-        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+    def model_post_init(self, _context):
+        """Pydantic v2 初始化后处理：自动生 URL"""
+        if not self.DATABASE_URL:
+            object.__setattr__(self, "DATABASE_URL",
+                f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+            )
+        if not self.REDIS_URL:
+            object.__setattr__(self, "REDIS_URL",
+                f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+            )
 
     class Config:
         env_file = ".env"

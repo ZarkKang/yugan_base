@@ -1,10 +1,26 @@
 import cv2
 import numpy as np
 from typing import Optional, Tuple
-from pyzbar import pyzbar
 from PIL import Image
 import io
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
+
+# 尝试导入 pyzbar，如果失败则记录警告（需要安装 libzbar0 系统库）
+try:
+    from pyzbar import pyzbar
+    _ZBAR_AVAILABLE = True
+except ImportError:
+    _ZBAR_AVAILABLE = False
+    logger.warning(
+        "pyzbar 无法加载 - 缺少 libzbar0 系统库。二维码识别功能将不可用。\n"
+        "  - Linux/Debian: sudo apt-get install libzbar0\n"
+        "  - macOS: brew install zbar\n"
+        "  - Windows: 下载 zbar DLL 并放到系统 PATH 中\n"
+        "    https://github.com/NaturalHistoryMuseum/pyzbar#windows"
+    )
 
 
 class QRCodeService:
@@ -13,6 +29,10 @@ class QRCodeService:
     @staticmethod
     def detect_qr_codes(image_data: bytes) -> list:
         """检测图像中的所有二维码并返回位置和内容"""
+        if not _ZBAR_AVAILABLE:
+            logger.error("二维码识别不可用: 未安装 libzbar0 系统库")
+            return []
+        
         # 转换图像
         nparr = np.frombuffer(image_data, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)

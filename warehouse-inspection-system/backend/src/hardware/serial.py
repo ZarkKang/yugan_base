@@ -46,6 +46,53 @@ class SerialComm:
             return True
         except serial.SerialException as e:
             logger.error(f"串口连接失败: {e}")
+            # WSL COM端口回退: 直接打开设备文件 (不配置波特率等参数)
+            if '/dev/ttyS' in self.config.port:
+                logger.info(f"[WSL] 尝试直接打开 {self.config.port} ...")
+                return self._connect_wsl_fallback()
+            return False
+
+    def _connect_wsl_fallback(self) -> bool:
+        """WSL COM端口回退连接方式"""
+        import os
+        try:
+            fd = os.open(self.config.port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+            # 使用文件描述符包装为类似serial的对象
+            class FdSerial:
+                def __init__(self, fd):
+                    self.fd = fd
+                    self.is_open = True
+                def read(self, size=1):
+                    import os
+                    try:
+                        return os.read(self.fd, size)
+                    except OSError:
+                        return None
+                def write(self, data):
+                    import os
+                    try:
+                        return os.write(self.fd, data)
+                    except OSError:
+                        return None
+                def readline(self):
+                    buf = bytearray()
+                    while True:
+                        chunk = self.read(1)
+                        if not chunk:
+                            return b''
+                        buf.extend(chunk)
+                        if chunk[-1] == b'\n'[0] or len(buf) > 1024:
+                            return bytes(buf)
+                def close(self):
+                    import os
+                    os.close(self.fd)
+                    self.is_open = False
+            self.ser = FdSerial(fd)
+            self._connected = True
+            logger.info(f"WSL回退: {self.config.port} 已连接 (fd={fd})")
+            return True
+        except OSError as e:
+            logger.error(f"WSL回退连接失败: {e}")
             return False
 
     def disconnect(self) -> None:

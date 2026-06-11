@@ -1,8 +1,33 @@
 
-version: '3.8'
 name: yugan-intelligence
 
 services:
+  # ─ 基础设施 ──────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: yugan-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: warehouse_inspection
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - yugan-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: yugan-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - yugan-network
+
+  # ─ 后端服务 ──────────────────────────────
   # 无人机数据系统后端
   drone-db:
     build:
@@ -25,6 +50,12 @@ services:
       - "8001:8000"
     volumes:
       - ./warehouse-inspection-system/backend:/app
+    devices:
+      # 串口设备映射，RFID读卡器自动探测
+      - "/dev/ttyUSB0:/dev/ttyUSB0"
+      - "/dev/ttyUSB1:/dev/ttyUSB1"
+      - "/dev/ttyACM0:/dev/ttyACM0"
+    privileged: true
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
     networks:
       - yugan-network
@@ -50,3 +81,7 @@ services:
 networks:
   yugan-network:
     driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:

@@ -9,7 +9,8 @@ import logging
 from .core.config import settings
 from .db.database import init_db, engine
 from .db.redis import redis_client
-from .api import inspection, drones, gateway
+from .db.seed import seed_data
+from .api import inspection, drones, gateway, images, rfid, system, dashboard
 
 # 配置日志
 logging.basicConfig(
@@ -28,6 +29,9 @@ async def lifespan(app: FastAPI):
     # 初始化数据库
     init_db()
     logger.info("数据库初始化完成")
+
+    # 初始化默认管理员用户
+    seed_data()
 
     # 连接Redis
     if redis_client.connect():
@@ -49,6 +53,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
 # CORS配置
 app.add_middleware(
     CORSMiddleware,
@@ -62,6 +67,10 @@ app.add_middleware(
 app.include_router(inspection.router, prefix="/api/v1")
 app.include_router(drones.router, prefix="/api/v1")
 app.include_router(gateway.router, prefix="/api/v1")
+app.include_router(images.router, prefix="/api/v1")
+app.include_router(rfid.router, prefix="/api/v1")
+app.include_router(system.router, prefix="/api/v1")
+app.include_router(dashboard.router, prefix="/api/v1")
 
 
 @app.get("/")
@@ -77,7 +86,14 @@ def root():
 @app.get("/health")
 def health_check():
     """健康检查"""
-    redis_status = redis_client.is_connected if redis_client else False
+    try:
+        if redis_client.client:
+            redis_client.client.ping()
+            redis_status = True
+        else:
+            redis_status = False
+    except Exception:
+        redis_status = False
     return {
         "status": "healthy",
         "database": "connected",

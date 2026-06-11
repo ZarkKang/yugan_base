@@ -1,11 +1,13 @@
 """
 数据模型 - 数据库表结构定义
 """
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, Enum as SQLEnum, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..db.database import Base
 import enum
+import os
+from datetime import datetime
 
 
 class InspectionStatus(str, enum.Enum):
@@ -23,6 +25,28 @@ class TaskStatus(str, enum.Enum):
     RUNNING = "running"
     FINISHED = "finished"
     CANCELLED = "cancelled"
+
+
+class ImageStatus(str, enum.Enum):
+    """图像识别状态枚举"""
+    PENDING = "pending"          # 待识别
+    PROCESSING = "processing"    # 识别中
+    PROCESSED = "processed"      # 已识别
+    FAILED = "failed"            # 识别失败
+
+
+class InventoryStatus(str, enum.Enum):
+    """库存状态枚举"""
+    NORMAL = "normal"            # 正常
+    MISPLACED = "misplaced"      # 错位
+    MISSING = "missing"          # 缺货
+    EXTRA = "extra"              # 多货
+    DUPLICATE = "duplicate"      # 重复码
+
+
+def _gen_id(prefix: str) -> str:
+    """生成唯一ID"""
+    return f"{prefix}_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')[:-3]}_{os.urandom(3).hex()}"
 
 
 class Drone(Base):
@@ -154,6 +178,13 @@ class Task(Base):
     total_records = Column(Integer, default=0, comment="总记录数")
     abnormal_records = Column(Integer, default=0, comment="异常记录数")
 
+    # 关联画像
+    total_images = Column(Integer, default=0, comment="图像总数")
+    total_recognized = Column(Integer, default=0, comment="已识别数")
+    total_failed = Column(Integer, default=0, comment="识别失败数")
+    pending_count = Column(Integer, default=0, comment="待识别数")
+    scanned_waypoints = Column(Integer, default=0, comment="已扫描航点")
+
     # 元数据
     created_by = Column(String(100), nullable=True, comment="创建人")
     created_at = Column(DateTime, server_default=func.now())
@@ -161,8 +192,168 @@ class Task(Base):
 
     # 关系
     drone = relationship("Drone", back_populates="tasks")
+    waypoints = relationship("Waypoint", back_populates="task", cascade="all, delete-orphan")
+    image_records = relationship("ImageRecord", back_populates="task", cascade="all, delete-orphan")
 
 
+# ========== 航点表 ==========
+class Waypoint(Base):
+    """巡检航点 — 任务下的每个扫描位置"""
+    __tablename__ = "waypoints"
+
+    id = Column(String(64), primary_key=True)
+    task_id = Column(String(64), ForeignKey("tasks.task_code"), nullable=False, comment="关联任务编号")
+    shelf_code = Column(String(50), nullable=True, comment="关联货架编号")
+    position_x = Column(Float, default=0, comment="位置X")
+    position_y = Column(Float, default=0, comment="位置Y")
+    position_z = Column(Float, default=0, comment="位置Z")
+    camera_angle = Column(Float, default=45.0, comment="摄像头俯仰角")
+    expected_sku = Column(String(128), nullable=True, comment="预期SKU")
+    expected_location = Column(String(256), nullable=True, comment="预期货架位置描述")
+    status = Column(String(16), default="pending", comment="状态: pending / scanning / completed / aborted")
+    sort_order = Column(Integer, default=0, comment="扫描顺序")
+    scanned_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    def __init__(self, **kwargs):
+        if "id" not in kwargs:
+            kwargs["id"] = "wp_" + _gen_id("")
+        super().__init__(**kwargs)
+
+    task = relationship("Task", back_populates="waypoints")
+    image_records = relationship("ImageRecord", back_populates="waypoint")
+
+
+# ========== 图像记录表 ==========
+class ImageRecord(Base):
+    """图像记录 — 无人机上传的每张图像"""
+    __tablename__ = "image_records"
+
+    id = Column(String(128), primary_key=True, comment="image_id")
+    drone_id = Column(Integer, ForeignKey("drones.id"), nullable=True)
+    task_id = Column(String(64), ForeignKey("tasks.task_code"), nullable=True)
+    waypoint_id = Column(String(64), ForeignKey("waypoints.id"), nullable=True)
+
+    # 文件存储
+    file_path = Column(String(512), comment="本地存储路径")
+    file_name = Column(String(256))
+    file_size = Column(Integer, comment="字节")
+    file_format = Column(String(8), default="jpeg")
+
+    # 采集元数据
+    position_x = Column(Float)
+    position_y = Column(Float)
+    position_z = Column(Float)
+    camera_angle = Column(Float)
+    capture_index = Column(Integer, default=0, comment="同一航点第几张")
+    rfid_tags = Column(Text, nullable=True, comment="RFID标签JSON")
+
+    # 识别状态
+    status = Column(String(16), default="pending", comment="pending / processing / processed / failed")
+    queued_at = Column(DateTime)
+    processing_started_at = Column(DateTime)
+    processed_at = Column(DateTime)
+    error_message = Column(String(512), nullable=True)
+
+    # 识别结果
+    qr_data = Column(String(256), nullable=True, comment="二维码解码内容")
+    confidence = Column(Float, nullable=True, comment="识别置信度 0-1")
+    image_quality_score = Column(Float, nullable=True, comment="拉普拉斯方差")
+    decoder_used = Column(String(32), nullable=True, comment="wechat_qrcode / pyzbar / none")
+
+    # 库存判定
+    inventory_status = Column(String(16), nullable=True, comment="normal/misplaced/missing/extra/duplicate")
+    expected_sku = Column(String(128), nullable=True)
+    inventory_message = Column(String(512), nullable=True)
+
+    created_at = Column(DateTime, server_default=func.now())
+
+    def __init__(self, **kwargs):
+        if "id" not in kwargs:
+            kwargs["id"] = "img_" + _gen_id("")
+        super().__init__(**kwargs)
+
+    drone = relationship("Drone")
+    task = relationship("Task", back_populates="image_records")
+    waypoint = relationship("Waypoint", back_populates="image_records")
+
+
+# ========== 库存物品表 ==========
+class InventoryItem(Base):
+    """库存物品 — 识别成功后自动入库"""
+    __tablename__ = "inventory_items"
+
+    id = Column(String(128), primary_key=True)
+    task_id = Column(String(64), ForeignKey("tasks.task_code"), nullable=True)
+    waypoint_id = Column(String(64), ForeignKey("waypoints.id"), nullable=True)
+    image_id = Column(String(128), ForeignKey("image_records.id"), nullable=True)
+
+    sku = Column(String(128), comment="识别出的SKU")
+    expected_sku = Column(String(128), nullable=True, comment="预期SKU")
+    expected_location = Column(String(256), nullable=True)
+    position_x = Column(Float)
+    position_y = Column(Float)
+    position_z = Column(Float)
+    status = Column(String(16), comment="normal/misplaced/missing/extra/duplicate")
+    message = Column(String(512), nullable=True)
+    confidence = Column(Float, nullable=True)
+    source_qr_data = Column(String(256), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    def __init__(self, **kwargs):
+        if "id" not in kwargs:
+            kwargs["id"] = "inv_" + _gen_id("")
+        super().__init__(**kwargs)
+
+
+# ========== 巡检报告表 ==========
+class InspectionReport(Base):
+    """巡检报告 — 任务完成后生成"""
+    __tablename__ = "inspection_reports"
+
+    id = Column(String(128), primary_key=True)
+    task_id = Column(String(64), ForeignKey("tasks.task_code"), nullable=True)
+    warehouse_id = Column(String(64), nullable=True)
+
+    total_waypoints = Column(Integer, default=0)
+    total_images = Column(Integer, default=0)
+    total_recognized = Column(Integer, default=0)
+    total_failed = Column(Integer, default=0)
+
+    normal_count = Column(Integer, default=0)
+    misplaced_count = Column(Integer, default=0)
+    missing_count = Column(Integer, default=0)
+    extra_count = Column(Integer, default=0)
+    duplicate_count = Column(Integer, default=0)
+    accuracy = Column(Float, nullable=True)
+
+    details = Column(Text, nullable=True, comment="异常详情JSON")
+    generated_at = Column(DateTime, server_default=func.now())
+    generated_by = Column(String(128), nullable=True)
+
+    def __init__(self, **kwargs):
+        if "id" not in kwargs:
+            kwargs["id"] = "report_" + _gen_id("")
+        super().__init__(**kwargs)
+
+
+# ========== 用户表 ==========
+class User(Base):
+    """用户表"""
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), unique=True, index=True, nullable=False, comment="用户名")
+    email = Column(String(100), unique=True, index=True, nullable=True, comment="邮箱")
+    hashed_password = Column(String(512), nullable=False, comment="密码哈希")
+    full_name = Column(String(100), nullable=True, comment="显示名")
+    role = Column(String(20), default="user", comment="角色: admin/user/operator")
+    is_active = Column(Boolean, default=True, comment="是否启用")
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+# ========== 系统日志 ==========
 class SystemLog(Base):
     """系统日志表"""
     __tablename__ = "system_logs"

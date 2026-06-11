@@ -1,90 +1,346 @@
-
 #!/bin/bash
 # ========================================
-#      域感智能 - Linux 快速启动
+#      域感智能 - Linux 快速启动/管理
 # ========================================
 
-# 函数：检查端口是否被占用
+# ── 颜色输出 ─────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+info()  { echo -e "${CYAN}[信息]${NC} $*"; }
+ok()    { echo -e "${GREEN}[完成]${NC} $*"; }
+warn()  { echo -e "${YELLOW}[警告]${NC} $*"; }
+error() { echo -e "${RED}[错误]${NC} $*"; }
+debug() { echo -e "${BLUE}[调试]${NC} $*"; }
+
+# ── 项目根目录 ──────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ── 默认配置 ─────────────────────────────────
+DRONE_PORT=${DRONE_PORT:-8000}
+WAREHOUSE_PORT=${WAREHOUSE_PORT:-8001}
+GATEWAY_PORT=${GATEWAY_PORT:-8080}
+PIP_MIRROR=${PIP_MIRROR:-""}
+VENV_DIR=${VENV_DIR:-""}
+MODE=${MODE:-"hybrid"}  # hybrid=基础设施docker+后端本地, local=全部本地, docker=全部docker
+
+PIP_EXTRA=""
+if [ -n "$PIP_MIRROR" ]; then
+    PIP_EXTRA="-i $PIP_MIRROR --trusted-host $(echo "$PIP_MIRROR" | sed -E 's|https?://||' | sed 's|/.*||')"
+fi
+
+# ── 工具函数 ──────────────────────────────────
+abs_path() {
+    local rel="$1"
+    local full="$SCRIPT_DIR/$rel"
+    [ -d "$full" ] && echo "$full" || echo ""
+}
+
+get_venv() {
+    local dir="$1"
+    local abs="$(abs_path "$dir")"
+    [ -n "$abs" ] && [ -d "$abs/venv" ] && echo "$abs/venv" && return
+    if [ -n "$VENV_DIR" ]; then
+        local name="$(basename "$abs")"
+        [ -d "$VENV_DIR/$name" ] && echo "$VENV_DIR/$name"
+    fi
+}
+
+require_cmd() {
+    command -v "$1" &>/dev/null || { error "未找到命令: $1"; return 1; }
+}
+
 check_port() {
     local port=$1
-    if lsof -Pi :$port -sTCP:LISTEN -t >/dev/null ; then
-        echo "端口 $port 已被占用"
-        echo "请先关闭占用该端口的进程，或选择其他端口"
+    ss -tlnp 2>/dev/null | grep -q ":${port} "
+}
+
+check_docker_port() {
+    docker ps --format '{{.Ports}}' 2>/dev/null | grep -qE "0\.0\.0\.0:${1}->|:${1}->"
+}
+
+# ─ 检查服务是否可用 ──────────────────────────
+check_service_ready() {
+    local name="$1" port="$2" max_wait="${3:-10}"
+    info "等待 ${name} 就绪 (最多 ${max_wait}s)..."
+    local i=0
+    while [ $i -lt $max_wait ]; do
+        if ! check_port "$port"; then
+            ok "${name} 已就绪 (端口 $port)"
+            return 0
+        fi
+        sleep 1
+        i=$((i+1))
+    done
+    error "${name} 未在 ${max_wait}s 内就绪 (端口 $port)"
+    return 1
+}
+
+# ── 基础设施启动 (PostgreSQL + Redis) ─────────
+start_infra() {
+    echo ""
+    echo -e "${CYAN}========================================${NC}"
+    echo -e "${CYAN}    步骤 1/4: 启动基础设施${NC}"
+    echo -e "${CYAN}========================================${NC}"
+
+    # 检查本地是否已有 PostgreSQL
+    if command -v pg_isready &>/dev/null && pg_isready -h localhost -p 5432 &>/dev/null; then
+        ok "本地 PostgreSQL 已运行"
+    elif check_docker_port 5432; then
+        ok "Docker PostgreSQL 已运行"
+    else
+        info "启动 Docker PostgreSQL + Redis..."
+        if ! docker compose up -d postgres redis 2>&1; then
+            error "Docker 启动失败，尝试使用本地服务..."
+            if command -v pg_isready &>/dev/null; then
+                sudo service postgresql start 2>/dev/null || true
+                sleep 2
+                if pg_isready -h localhost -p 5432 &>/dev/null; then
+                    ok "本地 PostgreSQL 已启动"
+                else
+                    error "PostgreSQL 无法启动，请手动安装: sudo apt install postgresql"
+                    return 1
+                fi
+            else
+                error "PostgreSQL 未安装"
+                return 1
+            fi
+        else
+            check_service_ready "PostgreSQL" 5432 15 || return 1
+            check_service_ready "Redis" 6379 10 || warn "Redis 未就绪 (可选)"
+        fi
+    fi
+}
+
+# ── 设置虚拟环境 ─────────────────────────────
+setup_venv() {
+    local dir="$1" req_file="$2"
+    local abs_dir="$(abs_path "$dir")"
+    [ -z "$abs_dir" ] && { error "目录不存在: $dir"; return 1; }
+
+    local venv_dir
+    if [ -n "$VENV_DIR" ]; then
+        venv_dir="$VENV_DIR/$(basename "$abs_dir")"
+    else
+        venv_dir="$abs_dir/venv"
+    fi
+
+    [ ! -d "$venv_dir" ] && { info "创建虚拟环境 ($dir)..."; python3 -m venv "$venv_dir"; }
+
+    if [ -f "$abs_dir/$req_file" ]; then
+        info "安装依赖 ($dir/$req_file)..."
+        "$venv_dir/bin/pip" install $PIP_EXTRA -r "$abs_dir/$req_file" || return 1
+        ok "依赖安装完成"
+    fi
+    return 0
+}
+
+# ── 启动后端服务 ──────────────────────────────
+start_backend_bg() {
+    local name="$1" dir="$2" module="$3" port="$4" req_file="${5:-requirements.txt}"
+    local log_file="$SCRIPT_DIR/logs/${name}.log"
+    local abs_dir="$(abs_path "$dir")"
+    local venv_dir
+    if [ -n "$VENV_DIR" ]; then
+        venv_dir="$VENV_DIR/$(basename "$abs_dir")"
+    else
+        venv_dir="$abs_dir/venv"
+    fi
+
+    mkdir -p "$SCRIPT_DIR/logs"
+
+    # 检查 Docker 是否占用
+    if check_docker_port "$port"; then
+        warn "端口 $port 已被 Docker 占用，跳过 ${name}"
         return 1
     fi
-    return 0
-}
 
-# 函数：设置虚拟环境
-setup_venv() {
-    local dir=$1
-    cd "$dir" || return 1
-    
-    if [ ! -d "venv" ]; then
-        echo "创建虚拟环境..."
-        python3 -m venv venv
+    # 停止旧进程
+    if ! check_port "$port"; then
+        local pid="$(lsof -ti :$port 2>/dev/null | head -1)"
+        [ -n "$pid" ] && { warn "停止旧进程 (PID: $pid)"; kill -9 "$pid" 2>/dev/null; sleep 1; }
     fi
-    
-    echo "激活虚拟环境..."
-    source venv/bin/activate
-    
-    echo "安装依赖..."
-    pip install -r requirements.txt
-    
+
+    setup_venv "$dir" "$req_file" || return 1
+
+    info "启动 ${name} (端口 $port)..."
+    nohup "$venv_dir/bin/uvicorn" "$module" --host 0.0.0.0 --port "$port" --app-dir "$abs_dir" > "$log_file" 2>&1 &
+    local pid=$!
+    echo "$pid" > "$SCRIPT_DIR/logs/${name}.pid"
+    debug "PID: $pid"
+
+    sleep 4
+    if kill -0 "$pid" 2>/dev/null && check_port "$port"; then
+        ok "${name} 启动成功 (PID: $pid, 端口: $port)"
+    else
+        error "${name} 启动失败"
+        error "=== 日志 (最后 20 行) ==="
+        [ -f "$log_file" ] && tail -20 "$log_file"
+        error "==========================="
+        return 1
+    fi
+}
+
+# ── 状态检查 ──────────────────────────────────
+check_all_status() {
+    echo ""
+    echo -e "${CYAN}========================================${NC}"
+    echo -e "${CYAN}         服务状态总览${NC}"
+    echo -e "${CYAN}========================================${NC}"
+
+    local all_ok=true
+
+    # PostgreSQL
+    if command -v pg_isready &>/dev/null && pg_isready -h localhost -p 5432 &>/dev/null; then
+        echo -e "  PostgreSQL      ${GREEN}[运行中]${NC}  端口 5432"
+    elif check_docker_port 5432; then
+        echo -e "  PostgreSQL      ${GREEN}[Docker]${NC}   端口 5432"
+    else
+        echo -e "  PostgreSQL      ${RED}[已停止]${NC}"
+        all_ok=false
+    fi
+
+    # Redis
+    if command -v redis-cli &>/dev/null && redis-cli -h localhost ping 2>/dev/null | grep -q PONG; then
+        echo -e "  Redis           ${GREEN}[运行中]${NC}  端口 6379"
+    elif check_docker_port 6379; then
+        echo -e "  Redis           ${GREEN}[Docker]${NC}   端口 6379"
+    else
+        echo -e "  Redis           ${YELLOW}[未运行]${NC}  (可选)"
+    fi
+
+    # 后端服务
+    for svc in "无人机数据系统:${DRONE_PORT}" "仓库巡检系统:${WAREHOUSE_PORT}" "API网关:${GATEWAY_PORT}"; do
+        local name="${svc%%:*}" port="${svc##*:}"
+        if check_port "$port"; then
+            echo -e "  ${name}    ${GREEN}[运行中]${NC}  端口 $port"
+        elif check_docker_port "$port"; then
+            echo -e "  ${name}    ${GREEN}[Docker]${NC}   端口 $port"
+        else
+            echo -e "  ${name}    ${RED}[已停止]${NC}"
+            all_ok=false
+        fi
+    done
+
+    # 图传模块
+    if ping -c 1 -W 1 192.168.1.200 &>/dev/null; then
+        echo -e "  图传模块(200)   ${GREEN}[在线]${NC}"
+    else
+        echo -e "  图传模块(200)   ${RED}[离线]${NC}"
+    fi
+
+    echo ""
+    $all_ok && ok "所有核心服务运行正常" || warn "部分服务未运行"
     return 0
 }
 
-echo "========================================"
-echo "      域感智能 - Linux 快速启动"
-echo "========================================"
-echo ""
-echo "[1] 启动无人机数据系统 (端口 8000)"
-echo "[2] 启动仓库巡检系统 (端口 8001)"
-echo "[3] 启动 API 网关 (端口 8080)"
-echo "[4] 启动桌面应用 (开发模式)"
-echo "[5] 使用 Docker Compose 启动全部"
-echo "[0] 退出"
-echo ""
-read -p "请选择: " choice
+# ── 停止服务 ──────────────────────────────────
+stop_service() {
+    local name="$1" port="$2"
+    local pid_file="$SCRIPT_DIR/logs/${name}.pid"
+    if [ -f "$pid_file" ]; then
+        local pid="$(cat "$pid_file")"
+        if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null
+            sleep 0.3
+        fi
+        rm -f "$pid_file"
+        ok "$name 已停止"
+    else
+        info "$name 无 PID 文件，跳过"
+    fi
+}
 
-case $choice in
-    1)
-        echo "启动无人机数据系统..."
-        if ! check_port 8000; then
-            exit 1
-        fi
-        setup_venv "drone-db-prototype/backend"
-        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-        ;;
-    2)
-        echo "启动仓库巡检系统..."
-        if ! check_port 8001; then
-            exit 1
-        fi
-        setup_venv "warehouse-inspection-system/backend"
-        uvicorn src.main:app --host 0.0.0.0 --port 8001 --reload
-        ;;
-    3)
-        echo "启动 API 网关..."
-        if ! check_port 8080; then
-            exit 1
-        fi
-        setup_venv "api-gateway"
-        uvicorn main:app --host 0.0.0.0 --port 8080 --reload
-        ;;
-    4)
-        echo "启动桌面应用..."
-        cd "desktop-app"
-        npm run dev
-        ;;
-    5)
-        echo "启动 Docker Compose..."
-        docker-compose up -d
-        ;;
-    0)
-        echo "退出"
-        ;;
-    *)
-        echo "无效选择"
-        ;;
+stop_all() {
+    info "停止所有服务..."
+    # Kill backend processes by port using pgrep (fast and reliable)
+    pkill -f "uvicorn.*port=$DRONE_PORT" 2>/dev/null || true
+    pkill -f "uvicorn.*port=$WAREHOUSE_PORT" 2>/dev/null || true
+    pkill -f "uvicorn.*port=$GATEWAY_PORT" 2>/dev/null || true
+    sleep 0.3
+    # Also kill by PID files if they exist
+    stop_service "无人机数据系统" "$DRONE_PORT"
+    stop_service "仓库巡检系统" "$WAREHOUSE_PORT"
+    stop_service "API网关" "$GATEWAY_PORT"
+    # Kill electron if running
+    pkill -f "electron" 2>/dev/null || true
+    rm -f "$SCRIPT_DIR/logs/"*.pid 2>/dev/null
+    ok "所有服务已停止"
+}
+
+# ── 主流程: 一键启动 ──────────────────────────
+start_all() {
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║     域感智能 - 一键启动             ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════╝${NC}"
+
+    start_infra || { error "基础设施启动失败"; return 1; }
+
+    echo ""
+    echo -e "${CYAN}========================================${NC}"
+    echo -e "${CYAN}    步骤 2/4: 启动无人机数据系统${NC}"
+    echo -e "${CYAN}========================================${NC}"
+    start_backend_bg "无人机数据系统" "drone-db-prototype/backend" "app.main:app" "$DRONE_PORT" || true
+
+    echo ""
+    echo -e "${CYAN}========================================${NC}"
+    echo -e "${CYAN}    步骤 3/4: 启动仓库巡检系统${NC}"
+    echo -e "${CYAN}========================================${NC}"
+    start_backend_bg "仓库巡检系统" "warehouse-inspection-system/backend" "src.main:app" "$WAREHOUSE_PORT" || true
+
+    echo ""
+    echo -e "${CYAN}========================================${NC}"
+    echo -e "${CYAN}    步骤 4/4: 启动 API 网关${NC}"
+    echo -e "${CYAN}========================================${NC}"
+    start_backend_bg "API网关" "api-gateway" "main:app" "$GATEWAY_PORT" || true
+
+    echo ""
+    check_all_status
+    echo ""
+    echo -e "${GREEN}访问地址:${NC}"
+    echo -e "  无人机数据:  ${CYAN}http://localhost:$DRONE_PORT${NC}"
+    echo -e "  仓库巡检:    ${CYAN}http://localhost:$WAREHOUSE_PORT${NC}"
+    echo -e "  API 网关:    ${CYAN}http://localhost:$GATEWAY_PORT${NC}"
+    echo -e "  前端页面:    ${CYAN}file://$SCRIPT_DIR/warehouse-inspection-system/frontend/index.html${NC}"
+    echo ""
+}
+
+# ── 帮助 ──────────────────────────────────────
+show_help() {
+    echo -e "${CYAN}域感智能 - 系统管理脚本${NC}"
+    echo ""
+    echo "用法: $0 [命令]"
+    echo ""
+    echo "  (无参数)    一键启动所有服务"
+    echo "  start       同上"
+    echo "  status      查看服务状态"
+    echo "  stop        停止所有服务"
+    echo "  logs [n]    查看日志（最近n行）"
+    echo "  restart     重启所有服务"
+    echo "  help        显示帮助"
+    echo ""
+    echo "环境变量:"
+    echo "  MODE=local     全部本地运行"
+    echo "  MODE=docker    全部 Docker 运行"
+    echo "  MODE=hybrid    基础设施Docker+后端本地（默认）"
+    echo "  VENV_DIR=~/venvs  虚拟环境存放位置（WSL加速）"
+    echo "  PIP_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple"
+    echo ""
+}
+
+# ── 入口 ──────────────────────────────────────
+case "${1:-}" in
+    start|start-all) start_all ;;
+    status)          check_all_status ;;
+    stop)            stop_all ;;
+    logs)            tail -${2:-50} logs/*.log 2>/dev/null || warn "无日志" ;;
+    restart)         stop_all; sleep 2; start_all ;;
+    help|--help|-h)  show_help ;;
+    "")              start_all ;;
+    *)               error "未知命令: $1"; show_help; exit 1 ;;
 esac

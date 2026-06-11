@@ -861,17 +861,29 @@
                             <span class="nav-icon">📊</span>
                             <span>数据面板</span>
                         </div>
+                        <div class="nav-item" data-section="live">
+                            <span class="nav-icon">📈</span>
+                            <span>实时看板</span>
+                        </div>
                         <div class="nav-item" data-section="drones">
                             <span class="nav-icon">🚁</span>
                             <span>无人机管理</span>
                         </div>
-                        <div class="nav-item" data-section="records">
+                        <div class="nav-item" data-section="tasks">
                             <span class="nav-icon">📋</span>
-                            <span>巡检记录</span>
+                            <span>任务管理</span>
                         </div>
-                        <div class="nav-item" data-section="gateway">
-                            <span class="nav-icon">📡</span>
-                            <span>数据接收</span>
+                        <div class="nav-item" data-section="inventory">
+                            <span class="nav-icon">📦</span>
+                            <span>库存管理</span>
+                        </div>
+                        <div class="nav-item" data-section="rfid">
+                            <span class="nav-icon">🏷️</span>
+                            <span>RFID 管理</span>
+                        </div>
+                        <div class="nav-item" data-section="connections">
+                            <span class="nav-icon">🔗</span>
+                            <span>系统连接</span>
                         </div>
                         <div class="nav-item" data-section="logs">
                             <span class="nav-icon">📟</span>
@@ -980,129 +992,179 @@
                         </div>
                     </section>
 
-                    <!-- Records Section -->
-                    <section class="section" id="records">
+                    <!-- Live Dashboard Section -->
+                    <section class="section" id="live">
                         <div class="section-header">
-                            <h2 class="section-title">巡检记录</h2>
-                            <button class="btn btn-secondary" onclick="exportRecords()">
-                                <span>📥</span> 导出数据
+                            <h2 class="section-title">实时看板</h2>
+                            <button class="btn btn-primary" onclick="loadLiveDashboard()">
+                                <span>🔄</span> 刷新
                             </button>
                         </div>
-
+                        <div id="liveError" style="display:none; padding: 1rem; background: rgba(255,61,90,0.1); border-radius: 8px; margin-bottom: 1rem; color: var(--accent-red);"></div>
                         <div class="stats-grid">
                             <div class="stat-card">
-                                <div class="stat-label">总记录数</div>
-                                <div class="stat-value">0</div>
+                                <div class="stat-label">活跃任务</div>
+                                <div class="stat-value" id="liveActiveTasks">-</div>
                             </div>
                             <div class="stat-card">
-                                <div class="stat-label">已完成</div>
-                                <div class="stat-value">0</div>
+                                <div class="stat-label">待处理图像</div>
+                                <div class="stat-value" id="livePendingQueue">-</div>
                             </div>
                             <div class="stat-card">
-                                <div class="stat-label">进行中</div>
-                                <div class="stat-value">0</div>
+                                <div class="stat-label">今日识别数</div>
+                                <div class="stat-value" id="liveTodayRecognized">-</div>
                             </div>
                             <div class="stat-card">
-                                <div class="stat-label">异常</div>
-                                <div class="stat-value">0</div>
+                                <div class="stat-label">识别速率(1min)</div>
+                                <div class="stat-value" id="liveRecogRate">-</div>
                             </div>
                         </div>
-
-                        <div class="data-table">
+                        <div class="data-table" style="margin-bottom: 1.5rem;">
                             <div class="table-header">
-                                <div class="table-title">📋 巡检记录列表</div>
-                                <div style="display: flex; gap: 0.5rem;">
-                                    <input type="text" class="form-input" placeholder="搜索记录..." style="width: 200px;">
-                                    <select class="form-input" style="width: 150px;">
-                                        <option value="">全部状态</option>
-                                        <option value="completed">已完成</option>
-                                        <option value="in_progress">进行中</option>
-                                        <option value="abnormal">异常</option>
-                                    </select>
-                                </div>
+                                <div class="table-title">🚀 任务进度</div>
                             </div>
                             <table>
-                                <thead>
-                                    <tr>
-                                        <th>记录ID</th>
-                                        <th>无人机</th>
-                                        <th>巡检区域</th>
-                                        <th>时间</th>
-                                        <th>状态</th>
-                                        <th>操作</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="recordsTable">
-                                    <tr>
-                                        <td colspan="6" class="empty-state">
-                                            <div class="empty-state-icon">📋</div>
-                                            <h3>暂无巡检记录</h3>
-                                            <p>开始巡检后记录将显示在这里</p>
-                                        </td>
-                                    </tr>
-                                </tbody>
+                                <thead><tr><th>任务编号</th><th>任务名称</th><th>状态</th><th>航点进度</th><th>图像 已识别/总数</th><th>进度</th></tr></thead>
+                                <tbody id="liveTaskTable"><tr><td colspan="6" class="empty-state"><div class="empty-state-icon">📋</div><h3>暂无活跃任务</h3></td></tr></tbody>
+                            </table>
+                        </div>
+                        <div class="data-table">
+                            <div class="table-header"><div class="table-title">📸 最近识别结果</div></div>
+                            <table>
+                                <thead><tr><th>图像ID</th><th>二维码数据</th><th>库存状态</th><th>置信度</th><th>时间</th></tr></thead>
+                                <tbody id="liveRecogTable"><tr><td colspan="5" class="empty-state"><div class="empty-state-icon">📸</div><h3>暂无识别数据</h3></td></tr></tbody>
                             </table>
                         </div>
                     </section>
 
-                    <!-- Gateway Section -->
-                    <section class="section" id="gateway">
+                    <!-- Tasks Section -->
+                    <section class="section" id="tasks">
                         <div class="section-header">
-                            <h2 class="section-title">数据接收网关</h2>
-                            <div class="status-indicator">
-                                <div class="status-dot" id="gatewayStatus"></div>
-                                <span>等待数据</span>
-                            </div>
+                            <h2 class="section-title">任务管理</h2>
+                            <button class="btn btn-primary" onclick="openTaskModal()">
+                                <span>➕</span> 创建任务
+                            </button>
                         </div>
-
-                        <div class="stats-grid">
-                            <div class="stat-card">
-                                <div class="stat-label">SBUS 数据</div>
-                                <div class="stat-value" id="sbusCount">0</div>
-                                <div class="stat-change">遥控信号包</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-label">RFID 扫描</div>
-                                <div class="stat-value" id="rfidCount">0</div>
-                                <div class="stat-change">标签读取</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-label">二维码</div>
-                                <div class="stat-value" id="qrcodeCount">0</div>
-                                <div class="stat-change">识别数量</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-label">视频流</div>
-                                <div class="stat-value" id="videoCount">0</div>
-                                <div class="stat-change">元数据包</div>
-                            </div>
-                        </div>
-
+                        <div id="tasksError" style="display:none; padding: 1rem; background: rgba(255,61,90,0.1); border-radius: 8px; margin-bottom: 1rem; color: var(--accent-red);"></div>
                         <div class="data-table">
                             <div class="table-header">
-                                <div class="table-title">📨 接收日志</div>
-                                <button class="btn btn-secondary" onclick="clearGatewayLogs()">
-                                    <span>🗑️</span> 清空
-                                </button>
+                                <div class="table-title">📋 任务列表</div>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <select class="form-input" style="width: 150px;" id="taskStatusFilter" onchange="loadTasks()">
+                                        <option value="">全部状态</option>
+                                        <option value="CREATED">已创建</option>
+                                        <option value="ASSIGNED">已分配</option>
+                                        <option value="RUNNING">运行中</option>
+                                        <option value="FINISHED">已完成</option>
+                                        <option value="CANCELLED">已取消</option>
+                                    </select>
+                                </div>
                             </div>
                             <table>
-                                <thead>
-                                    <tr>
-                                        <th>时间</th>
-                                        <th>数据类型</th>
-                                        <th>来源</th>
-                                        <th>内容摘要</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="gatewayTable">
-                                    <tr>
-                                        <td colspan="4" class="empty-state">
-                                            <div class="empty-state-icon">📡</div>
-                                            <h3>暂无接收数据</h3>
-                                            <p>等待无人机回传数据...</p>
-                                        </td>
-                                    </tr>
-                                </tbody>
+                                <thead><tr><th>任务编号</th><th>名称</th><th>类型</th><th>状态</th><th>无人机</th><th>航点</th><th>图像</th><th>时间</th><th>操作</th></tr></thead>
+                                <tbody id="taskTable"><tr><td colspan="9" class="empty-state"><div class="empty-state-icon">📋</div><h3>暂无任务</h3></td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <!-- Inventory Section -->
+                    <section class="section" id="inventory">
+                        <div class="section-header">
+                            <h2 class="section-title">库存管理</h2>
+                            <button class="btn btn-secondary" onclick="loadInventory()">
+                                <span>🔄</span> 刷新
+                            </button>
+                        </div>
+                        <div id="invError" style="display:none; padding: 1rem; background: rgba(255,61,90,0.1); border-radius: 8px; margin-bottom: 1rem; color: var(--accent-red);"></div>
+                        <div class="stats-grid">
+                            <div class="stat-card"><div class="stat-label">正常</div><div class="stat-value" id="invNormal" style="color: var(--accent-green);">0</div></div>
+                            <div class="stat-card"><div class="stat-label">错位</div><div class="stat-value" id="invMisplaced" style="color: var(--accent-orange);">0</div></div>
+                            <div class="stat-card"><div class="stat-label">缺失</div><div class="stat-value" id="invMissing" style="color: var(--accent-red);">0</div></div>
+                            <div class="stat-card"><div class="stat-label">多货/重复</div><div class="stat-value" id="invExtra" style="color: var(--accent-purple);">0</div></div>
+                        </div>
+                        <div class="data-table">
+                            <div class="table-header">
+                                <div class="table-title">📦 库存物品</div>
+                                <select class="form-input" style="width: 150px;" id="invStatusFilter" onchange="loadInventory()">
+                                    <option value="">全部</option>
+                                    <option value="normal">正常</option>
+                                    <option value="misplaced">错位</option>
+                                    <option value="missing">缺失</option>
+                                    <option value="extra">多货</option>
+                                    <option value="duplicate">重复</option>
+                                </select>
+                            </div>
+                            <table>
+                                <thead><tr><th>SKU</th><th>预期SKU</th><th>状态</th><th>位置</th><th>置信度</th><th>时间</th></tr></thead>
+                                <tbody id="invTable"><tr><td colspan="6" class="empty-state"><div class="empty-state-icon">📦</div><h3>暂无库存数据</h3></td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <!-- RFID Section -->
+                    <section class="section" id="rfid">
+                        <div class="section-header">
+                            <h2 class="section-title">RFID 管理</h2>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn btn-primary" onclick="rfidConnect()"><span>🔌</span> 连接</button>
+                                <button class="btn btn-secondary" onclick="rfidRead()"><span>📖</span> 读取</button>
+                                <button class="btn btn-secondary" onclick="rfidStartScan()"><span>▶</span> 连续扫描</button>
+                                <button class="btn btn-secondary" onclick="rfidStopScan()"><span>⏹</span> 停止</button>
+                            </div>
+                        </div>
+                        <div id="rfidError" style="display:none; padding: 1rem; background: rgba(255,61,90,0.1); border-radius: 8px; margin-bottom: 1rem; color: var(--accent-red);"></div>
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-label">连接状态</div>
+                                <div class="stat-value" id="rfidStatus" style="font-size: 1rem; color: var(--accent-red);">未连接</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">串口</div>
+                                <div class="stat-value" id="rfidPort" style="font-size: 1rem;">-</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">已扫描标签</div>
+                                <div class="stat-value" id="rfidTagCount">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">扫描状态</div>
+                                <div class="stat-value" id="rfidScanState" style="font-size: 1rem;">已停止</div>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+                            <div style="flex: 1;">
+                                <label class="form-label">写入数据</label>
+                                <input type="text" class="form-input" id="rfidWriteData" placeholder="要写入标签的数据">
+                            </div>
+                            <div style="flex: 1;">
+                                <label class="form-label">目标标签ID (可选)</label>
+                                <input type="text" class="form-input" id="rfidWriteTag" placeholder="留空写入任意标签">
+                            </div>
+                            <div style="display: flex; align-items: flex-end;">
+                                <button class="btn btn-primary" onclick="rfidWrite()" style="height: 44px;">✏️ 写入</button>
+                            </div>
+                        </div>
+                        <div class="data-table">
+                            <div class="table-header"><div class="table-title">🏷️ 标签列表</div><button class="btn btn-secondary" onclick="rfidClear()">🗑️ 清空</button></div>
+                            <table>
+                                <thead><tr><th>标签ID</th><th>信号强度</th><th>天线</th><th>读取时间</th></tr></thead>
+                                <tbody id="rfidTagTable"><tr><td colspan="4" class="empty-state"><div class="empty-state-icon">🏷️</div><h3>暂无标签数据</h3></td></tr></tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <!-- Connections Section -->
+                    <section class="section" id="connections">
+                        <div class="section-header">
+                            <h2 class="section-title">系统连接状态</h2>
+                            <button class="btn btn-primary" onclick="loadConnectionStatus()"><span>🔄</span> 刷新</button>
+                        </div>
+                        <div id="connError" style="display:none; padding: 1rem; background: rgba(255,61,90,0.1); border-radius: 8px; margin-bottom: 1rem; color: var(--accent-red);"></div>
+                        <div class="data-table">
+                            <div class="table-header"><div class="table-title">🔗 模块连接状态</div></div>
+                            <table>
+                                <thead><tr><th>模块名称</th><th>连接状态</th><th>延迟</th><th>最后检查</th><th>详情</th></tr></thead>
+                                <tbody id="connTable"><tr><td colspan="5" class="empty-state"><div class="empty-state-icon">🔗</div><h3>加载中...</h3></td></tr></tbody>
                             </table>
                         </div>
                     </section>
@@ -1123,19 +1185,9 @@
 
                         <div class="log-console" id="logConsole">
                             <div class="log-entry">
-                                <span class="log-time">12:00:00</span>
-                                <span class="log-type success">OK</span>
-                                <span class="log-message">系统启动完成</span>
-                            </div>
-                            <div class="log-entry">
-                                <span class="log-time">12:00:01</span>
+                                <span class="log-time">--:--:--</span>
                                 <span class="log-type info">INF</span>
-                                <span class="log-message">数据库连接成功</span>
-                            </div>
-                            <div class="log-entry">
-                                <span class="log-time">12:00:02</span>
-                                <span class="log-type success">OK</span>
-                                <span class="log-message">Redis 连接成功</span>
+                                <span class="log-message">等待系统启动...</span>
                             </div>
                         </div>
                     </section>
@@ -1154,15 +1206,15 @@
             <div class="modal-body">
                 <div class="form-group">
                     <label class="form-label">无人机编号</label>
-                    <input type="text" class="form-input" id="droneCode" placeholder="D-001">
+                    <input type="text" class="form-input" id="droneCode" placeholder="DRONE001">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">名称</label>
+                    <input type="text" class="form-input" id="droneName" placeholder="仓库A区无人机">
                 </div>
                 <div class="form-group">
                     <label class="form-label">型号</label>
                     <input type="text" class="form-input" id="droneModel" placeholder="Phantom 4 Pro">
-                </div>
-                <div class="form-group">
-                    <label class="form-label">描述</label>
-                    <input type="text" class="form-input" id="droneDesc" placeholder="仓库A区巡检">
                 </div>
             </div>
             <div class="modal-footer">
@@ -1172,329 +1224,562 @@
         </div>
     </div>
 
+    <!-- Task Modal -->
+    <div class="modal-overlay" id="taskModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title">创建巡检任务</h3>
+                <button class="modal-close" onclick="closeTaskModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">任务编号</label>
+                    <input type="text" class="form-input" id="taskCode" placeholder="TASK001">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">任务名称</label>
+                    <input type="text" class="form-input" id="taskName" placeholder="A区常规巡检">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">任务类型</label>
+                    <select class="form-input" id="taskType">
+                        <option value="routine">常规巡检</option>
+                        <option value="emergency">紧急巡检</option>
+                        <option value="custom">自定义</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">飞行高度 (米)</label>
+                    <input type="number" class="form-input" id="taskAltitude" value="5.0" step="0.1">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">飞行速度 (米/秒)</label>
+                    <input type="number" class="form-input" id="taskSpeed" value="2.0" step="0.1">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">目标货架 (JSON数组, 可选)</label>
+                    <input type="text" class="form-input" id="taskShelves" placeholder='["A-01","A-02","B-03"]'>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeTaskModal()">取消</button>
+                <button class="btn btn-primary" onclick="createTask()">创建任务</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast Container -->
     <div class="toast-container" id="toastContainer"></div>
 
     <script>
-        // 动态 API 配置
-        let API_BASE = 'http://localhost:8001/api/v1';
+        // ========== 配置 ==========
+        let API_BASE = 'http://localhost:8001';
 
-        // 初始化 API 地址（现在直接使用完整API路径，无需拼接）
         async function initApiBase() {
             if (window.electronAPI && window.electronAPI.getBackendUrl) {
                 try {
                     const url = await window.electronAPI.getBackendUrl('warehouse-inspection');
-                    if (url) {
-                        API_BASE = url;
-                        console.log('使用 Electron 动态 API 地址:', API_BASE);
-                        return;
-                    }
-                } catch (e) {
-                    console.warn('获取动态 API 地址失败，使用默认地址:', e);
-                }
+                    if (url) { API_BASE = url; console.log('Electron API:', API_BASE); return; }
+                } catch (e) { console.warn('Electron API fail:', e); }
             }
-            // 默认回退到直连地址
             API_BASE = 'http://localhost:8001/api/v1';
-            console.log('使用默认 API 地址:', API_BASE);
+            console.log('Default API:', API_BASE);
         }
 
-        // Navigation
+        // ========== 通用工具 ==========
+        function $id(id) { return document.getElementById(id); }
+
+        function showToast(message, type = 'info') {
+            const container = $id('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `<span>${type === 'success' ? '✓' : type === 'error' ? '✕' : type === 'warning' ? '⚠' : 'ℹ'}</span><span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => { toast.style.animation = 'slideIn 0.3s ease reverse'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+
+        async function apiGet(path) {
+            const res = await fetch(`${API_BASE}${path}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.json();
+        }
+
+        async function apiPost(path, body = {}) {
+            const res = await fetch(`${API_BASE}${path}`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.json();
+        }
+
+        function showSectionError(sectionId, msg) {
+            const el = $id(sectionId);
+            if (el) { el.style.display = 'block'; el.textContent = msg; }
+        }
+
+        function hideSectionError(sectionId) {
+            const el = $id(sectionId);
+            if (el) el.style.display = 'none';
+        }
+
+        function statusBadge(status, online = false) {
+            const map = {
+                'online': 'online', 'running': 'info', 'created': '', 'assigned': 'info',
+                'finished': 'online', 'cancelled': 'offline',
+                'normal': 'online', 'misplaced': 'warning', 'missing': 'offline',
+                'extra': 'info', 'duplicate': 'warning',
+                'pending': '', 'processing': 'info', 'processed': 'online', 'failed': 'offline',
+            };
+            const cls = map[status] || (online ? 'online' : '');
+            const labels = {
+                'online': '在线', 'offline': '离线', 'running': '运行中', 'created': '已创建',
+                'assigned': '已分配', 'finished': '已完成', 'cancelled': '已取消',
+                'CREATED': '已创建', 'ASSIGNED': '已分配', 'RUNNING': '运行中', 'FINISHED': '已完成', 'CANCELLED': '已取消',
+                'normal': '正常', 'misplaced': '错位', 'missing': '缺失', 'extra': '多货', 'duplicate': '重复',
+                'pending': '待处理', 'processing': '处理中', 'processed': '已识别', 'failed': '失败',
+            };
+            return `<span class="status-badge ${cls}">${labels[status] || status}</span>`;
+        }
+
+        function formatTime(isoStr) {
+            if (!isoStr) return '-';
+            const d = new Date(isoStr);
+            return d.toLocaleString('zh-CN', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+        }
+
+        function addLog(message, type = 'info') {
+            const el = $id('logConsole');
+            const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+            const labels = { success: 'OK', error: 'ERR', warning: 'WRN', info: 'INF' };
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span class="log-time">${time}</span><span class="log-type ${type}">${labels[type] || 'INF'}</span><span class="log-message">${message}</span>`;
+            el.insertBefore(entry, el.firstChild);
+        }
+
+        // ========== 导航 ==========
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', () => {
-                const section = item.dataset.section;
-                
                 document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-                item.classList.add('active');
-                
                 document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-                document.getElementById(section).classList.add('active');
+                item.classList.add('active');
+                $id(item.dataset.section).classList.add('active');
+
+                // 切换时自动加载
+                const sec = item.dataset.section;
+                if (sec === 'live') loadLiveDashboard();
+                if (sec === 'tasks') loadTasks();
+                if (sec === 'inventory') loadInventory();
+                if (sec === 'rfid') loadRfidStatus();
+                if (sec === 'connections') loadConnectionStatus();
             });
         });
 
-        // Toast notifications
-        function showToast(message, type = 'info') {
-            const container = document.getElementById('toastContainer');
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
-            toast.innerHTML = `
-                <span>${type === 'success' ? '✓' : type === 'error' ? '✕' : type === 'warning' ? '⚠' : 'ℹ'}</span>
-                <span>${message}</span>
-            `;
-            container.appendChild(toast);
-            
-            setTimeout(() => {
-                toast.style.animation = 'slideIn 0.3s ease reverse';
-                setTimeout(() => toast.remove(), 300);
-            }, 3000);
+        // ========== Dashboard ==========
+        async function loadDashboard() {
+            try {
+                const data = await apiGet('/dashboard/overview');
+                if (data.success) {
+                    const d = data.data;
+                    $id('droneOnline').textContent = `${d.drones.online}/${d.drones.total}`;
+                    $id('totalRecords').textContent = d.today.images;
+                    $id('dataThroughput').textContent = d.today.recognition_rate + '%';
+                    addLog(`仪表盘加载完成: ${d.today.images}张图像, ${d.today.recognized}已识别`, 'success');
+
+                    // 实时数据流
+                    const flow = $id('dataFlowTable');
+                    try {
+                        const live = await apiGet('/dashboard/live');
+                        if (live.success && live.data.recent_recognitions.length > 0) {
+                            flow.innerHTML = live.data.recent_recognitions.slice(0, 10).map(r => `
+                                <tr>
+                                    <td style="font-family:monospace;font-size:0.75rem">${r.image_id.slice(0,16)}</td>
+                                    <td>二维码识别</td>
+                                    <td>${r.task_id || '-'}</td>
+                                    <td>${statusBadge(r.inventory_status || r.status)}</td>
+                                </tr>
+                            `).join('');
+                        }
+                    } catch (e) { /* keep empty state */ }
+                }
+            } catch (e) {
+                addLog('仪表盘加载失败: ' + e.message, 'warning');
+            }
         }
 
-        // Drone Modal
-        function openDroneModal() {
-            document.getElementById('droneModal').classList.add('active');
+        // ========== 实时看板 ==========
+        async function loadLiveDashboard() {
+            hideSectionError('liveError');
+            try {
+                const overview = await apiGet('/dashboard/overview');
+                if (overview.success) {
+                    $id('liveActiveTasks').textContent = overview.data.tasks.active;
+                    $id('liveTodayRecognized').textContent = overview.data.today.recognized;
+                }
+
+                const live = await apiGet('/dashboard/live');
+                if (live.success) {
+                    $id('livePendingQueue').textContent = live.data.pending_queue;
+                    $id('liveRecogRate').textContent = live.data.recognition_rate_1m + '/min';
+
+                    // 识别结果
+                    const recogTable = $id('liveRecogTable');
+                    if (live.data.recent_recognitions.length > 0) {
+                        recogTable.innerHTML = live.data.recent_recognitions.map(r => `
+                            <tr>
+                                <td style="font-family:monospace;font-size:0.75rem">${(r.image_id||'').slice(0,16)}</td>
+                                <td style="font-family:monospace;color:var(--accent-cyan)">${r.qr_data || '-'}</td>
+                                <td>${statusBadge(r.inventory_status)}</td>
+                                <td>${r.confidence ? (r.confidence*100).toFixed(0)+'%' : '-'}</td>
+                                <td>${formatTime(r.processed_at || r.created_at)}</td>
+                            </tr>
+                        `).join('');
+                    }
+                }
+
+                // 任务进度
+                const tasks = await apiGet('/dashboard/tasks');
+                if (tasks.success) {
+                    const taskTable = $id('liveTaskTable');
+                    if (tasks.data.items.length > 0) {
+                        taskTable.innerHTML = tasks.data.items.map(t => `
+                            <tr>
+                                <td style="font-family:monospace;color:var(--accent-cyan)">${t.task_code}</td>
+                                <td>${t.task_name}</td>
+                                <td>${statusBadge(t.status)}</td>
+                                <td>${t.waypoints.scanned}/${t.waypoints.total}</td>
+                                <td>${t.images.recognized}/${t.images.total}</td>
+                                <td>
+                                    <div style="background:var(--bg-tertiary);border-radius:8px;height:8px;overflow:hidden">
+                                        <div style="background:linear-gradient(90deg,var(--accent-cyan),var(--accent-green));height:100%;width:${t.progress_percent}%"></div>
+                                    </div>
+                                    <span style="font-size:0.75rem;color:var(--text-secondary)">${t.progress_percent}%</span>
+                                </td>
+                            </tr>
+                        `).join('');
+                    }
+                }
+
+                addLog('实时看板已刷新', 'success');
+            } catch (e) {
+                showSectionError('liveError', '加载失败: ' + e.message);
+                addLog('实时看板加载失败: ' + e.message, 'error');
+            }
         }
 
-        function closeDroneModal() {
-            document.getElementById('droneModal').classList.remove('active');
-        }
+        // ========== 无人机管理 ==========
+        function openDroneModal() { $id('droneModal').classList.add('active'); }
+        function closeDroneModal() { $id('droneModal').classList.remove('active'); }
 
         async function createDrone() {
-            const code = document.getElementById('droneCode').value;
-            const model = document.getElementById('droneModel').value;
-            const desc = document.getElementById('droneDesc').value;
-
-            if (!code || !model) {
-                showToast('请填写必填字段', 'warning');
-                return;
-            }
-
+            const code = $id('droneCode').value;
+            const model = $id('droneModel').value;
+            const name = $id('droneName').value;
+            if (!code || !model) { showToast('请填写编号和型号', 'warning'); return; }
             try {
-                const response = await fetch(`${API_BASE}/drones/`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ code, model, description: desc })
-                });
-                
-                if (response.ok) {
+                const data = await apiPost('/drones/', { drone_code: code, drone_name: name, model: model });
+                if (data.success) {
                     showToast('无人机注册成功', 'success');
                     closeDroneModal();
                     loadDrones();
-                } else {
-                    throw new Error('注册失败');
                 }
-            } catch (error) {
-                showToast('注册失败: ' + error.message, 'error');
-            }
+            } catch (e) { showToast('注册失败: ' + e.message, 'error'); }
         }
 
-        // Load Drones
         async function loadDrones() {
             try {
-                const response = await fetch(`${API_BASE}/drones/`);
-                if (response.ok) {
-                    const drones = await response.json();
-                    updateDroneDisplay(drones);
+                const data = await apiGet('/drones/');
+                if (data.success && data.data) {
+                    const drones = Array.isArray(data.data) ? data.data : (data.data.items || []);
+                    renderDrones(drones);
+                    return;
                 }
-            } catch (error) {
-                console.log('API not available, using demo mode');
-                updateDroneDisplay([]);
-            }
+            } catch (e) { addLog('无人机API不可用', 'warning'); }
+            renderDrones([]);
         }
 
-        function updateDroneDisplay(drones) {
-            const grid = document.getElementById('droneGrid');
-            const table = document.getElementById('droneTable');
-            
+        function renderDrones(drones) {
+            const grid = $id('droneGrid');
+            const table = $id('droneTable');
             if (drones.length === 0) {
-                // Demo mode with sample data
-                grid.innerHTML = `
-                    <div class="drone-card selected">
-                        <div class="drone-header">
-                            <div>
-                                <div class="drone-id">D-001</div>
-                                <div class="drone-model">Phantom 4 Pro V2.0</div>
-                            </div>
-                            <span class="status-badge online">在线</span>
-                        </div>
-                        <div style="color: var(--text-secondary); font-size: 0.875rem;">仓库A区巡检</div>
-                        <div class="drone-position">
-                            <div class="position-axis">
-                                <div class="axis-label">X</div>
-                                <div class="axis-value">12.5</div>
-                            </div>
-                            <div class="position-axis">
-                                <div class="axis-label">Y</div>
-                                <div class="axis-value">8.3</div>
-                            </div>
-                            <div class="position-axis">
-                                <div class="axis-label">Z</div>
-                                <div class="axis-value">5.0</div>
-                            </div>
-                        </div>
+                grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-state-icon">🚁</div><h3>暂无无人机</h3><p>点击上方按钮注册第一架无人机</p></div>';
+                table.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="empty-state-icon">🚁</div><h3>暂无无人机</h3></td></tr>';
+                return;
+            }
+            grid.innerHTML = drones.map(d => `
+                <div class="drone-card ${d.status==='online'?'selected':''}">
+                    <div class="drone-header">
+                        <div><div class="drone-id">${d.drone_code}</div><div class="drone-model">${d.model || '-'}</div></div>
+                        ${statusBadge(d.status === 'online' ? 'online' : 'offline')}
                     </div>
-                    <div class="drone-card">
-                        <div class="drone-header">
-                            <div>
-                                <div class="drone-id">D-002</div>
-                                <div class="drone-model">Mavic 3 Enterprise</div>
-                            </div>
-                        <span class="status-badge online">在线</span>
-                        </div>
-                        <div style="color: var(--text-secondary); font-size: 0.875rem;">仓库B区巡检</div>
-                        <div class="drone-position">
-                            <div class="position-axis">
-                                <div class="axis-label">X</div>
-                                <div class="axis-value">0.0</div>
-                            </div>
-                            <div class="position-axis">
-                                <div class="axis-label">Y</div>
-                                <div class="axis-value">0.0</div>
-                            </div>
-                            <div class="position-axis">
-                                <div class="axis-label">Z</div>
-                                <div class="axis-value">0.0</div>
-                            </div>
-                        </div>
+                    <div style="color:var(--text-secondary);font-size:0.875rem">${d.drone_name || ''}</div>
+                    <div class="drone-position">
+                        <div class="position-axis"><div class="axis-label">X</div><div class="axis-value">${d.last_position_x?.toFixed(1)||'--'}</div></div>
+                        <div class="position-axis"><div class="axis-label">Y</div><div class="axis-value">${d.last_position_y?.toFixed(1)||'--'}</div></div>
+                        <div class="position-axis"><div class="axis-label">Z</div><div class="axis-value">${d.last_position_z?.toFixed(1)||'--'}</div></div>
                     </div>
-                    <div class="drone-card">
-                        <div class="drone-header">
-                            <div>
-                                <div class="drone-id">D-003</div>
-                                <div class="drone-model">Autel EVO II Pro</div>
-                            </div>
-                            <span class="status-badge offline">离线</span>
-                        </div>
-                        <div style="color: var(--text-secondary); font-size: 0.875rem;">备用无人机</div>
-                        <div class="drone-position">
-                            <div class="position-axis">
-                                <div class="axis-label">X</div>
-                                <div class="axis-value">--</div>
-                            </div>
-                            <div class="position-axis">
-                                <div class="axis-label">Y</div>
-                                <div class="axis-value">--</div>
-                            </div>
-                            <div class="position-axis">
-                                <div class="axis-label">Z</div>
-                                <div class="axis-value">--</div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                
-                table.innerHTML = `
-                    <tr>
-                        <td style="font-family: 'JetBrains Mono', monospace; color: var(--accent-cyan);">D-001</td>
-                        <td>Phantom 4 Pro V2.0</td>
-                        <td><span class="status-badge online">在线</span></td>
-                        <td>87%</td>
-                        <td>强</td>
-                        <td>
-                            <button class="btn btn-secondary" style="padding: 0.375rem 0.75rem;">详情</button>
-                            <button class="btn btn-danger" style="padding: 0.375rem 0.75rem;">删除</button>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="font-family: 'JetBrains Mono', monospace; color: var(--accent-cyan);">D-002</td>
-                        <td>Mavic 3 Enterprise</td>
-                        <td><span class="status-badge online">在线</span></td>
-                        <td>92%</td>
-                        <td>强</td>
-                        <td>
-                            <button class="btn btn-secondary" style="padding: 0.375rem 0.75rem;">详情</button>
-                            <button class="btn btn-danger" style="padding: 0.375rem 0.75rem;">删除</button>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="font-family: 'JetBrains Mono', monospace; color: var(--accent-cyan);">D-003</td>
-                        <td>Autel EVO II Pro</td>
-                        <td><span class="status-badge offline">离线</span></td>
-                        <td>0%</td>
-                        <td>无</td>
-                        <td>
-                            <button class="btn btn-secondary" style="padding: 0.375rem 0.75rem;">详情</button>
-                            <button class="btn btn-danger" style="padding: 0.375rem 0.75rem;">删除</button>
-                        </td>
-                    </tr>
-                `;
-                
-                document.getElementById('droneOnline').textContent = '2';
-            } else {
-                // Real data from API
-                const onlineCount = drones.filter(d => d.status === 'online').length;
-                document.getElementById('droneOnline').textContent = onlineCount;
+                </div>
+            `).join('');
+            table.innerHTML = drones.map(d => `
+                <tr>
+                    <td style="font-family:monospace;color:var(--accent-cyan)">${d.drone_code}</td>
+                    <td>${d.model || '-'}</td>
+                    <td>${statusBadge(d.status === 'online' ? 'online' : 'offline')}</td>
+                    <td>${d.battery_level?.toFixed(0)||0}%</td>
+                    <td>${d.status === 'online' ? '强' : '无'}</td>
+                    <td><button class="btn btn-secondary" style="padding:0.375rem 0.75rem" onclick="deleteDrone('${d.drone_code}')">删除</button></td>
+                </tr>
+            `).join('');
+        }
+
+        async function deleteDrone(code) {
+            if (!confirm('确认删除无人机 ' + code + '?')) return;
+            try { await fetch(`${API_BASE}/drones/${code}`, { method: 'DELETE' }); showToast('删除成功', 'success'); loadDrones(); }
+            catch (e) { showToast('删除失败: ' + e.message, 'error'); }
+        }
+
+        // ========== 任务管理 ==========
+        function openTaskModal() { $id('taskModal').classList.add('active'); }
+        function closeTaskModal() { $id('taskModal').classList.remove('active'); }
+
+        async function createTask() {
+            const payload = {
+                task_code: $id('taskCode').value,
+                task_name: $id('taskName').value,
+                task_type: $id('taskType').value,
+                altitude: parseFloat($id('taskAltitude').value) || 5.0,
+                speed: parseFloat($id('taskSpeed').value) || 2.0,
+                target_shelves: (() => { try { const v=$id('taskShelves').value; return v ? JSON.parse(v) : null; } catch { return null; } })(),
+            };
+            if (!payload.task_code || !payload.task_name) { showToast('请填写任务编号和名称', 'warning'); return; }
+            try {
+                const data = await apiPost('/inspection/tasks', payload);
+                if (data.success) { showToast('任务创建成功', 'success'); closeTaskModal(); loadTasks(); }
+            } catch (e) { showToast('创建失败: ' + e.message, 'error'); }
+        }
+
+        async function loadTasks() {
+            hideSectionError('tasksError');
+            const statusFilter = $id('taskStatusFilter').value;
+            try {
+                const path = statusFilter ? `/inspection/tasks?status=${statusFilter}` : '/inspection/tasks';
+                const data = await apiGet(path);
+                if (data.success && data.data.items) {
+                    const table = $id('taskTable');
+                    if (data.data.items.length === 0) {
+                        table.innerHTML = '<tr><td colspan="9" class="empty-state"><div class="empty-state-icon">📋</div><h3>暂无任务</h3></td></tr>';
+                        return;
+                    }
+                    table.innerHTML = data.data.items.map(t => `
+                        <tr>
+                            <td style="font-family:monospace;color:var(--accent-cyan);cursor:pointer" onclick="viewTaskDetail('${t.task_code}')">${t.task_code}</td>
+                            <td>${t.task_name}</td>
+                            <td>${t.task_type || '-'}</td>
+                            <td>${statusBadge(t.status)}</td>
+                            <td>${t.drone_code || '-'}</td>
+                            <td>${t.scanned_waypoints||0}/${t.total_waypoints||0}</td>
+                            <td>${t.total_recognized||0}/${t.total_images||0}</td>
+                            <td>${formatTime(t.start_time || t.created_at)}</td>
+                            <td>
+                                <button class="btn btn-secondary" style="padding:0.375rem 0.5rem;font-size:0.75rem" onclick="viewTaskDetail('${t.task_code}')">详情</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                    addLog(`任务列表加载完成: ${data.data.items.length} 项`, 'success');
+                }
+            } catch (e) {
+                showSectionError('tasksError', '加载失败: ' + e.message);
             }
         }
 
-        // Refresh Dashboard
-        async function refreshDashboard() {
-            showToast('正在刷新数据...', 'info');
-            await loadDrones();
-            setTimeout(() => {
-                showToast('数据已更新', 'success');
-            }, 500);
+        function viewTaskDetail(taskCode) {
+            showToast('任务详情: ' + taskCode, 'info');
         }
 
-        // Export functions
-        function exportRecords() {
-            showToast('导出功能开发中', 'info');
-        }
-
-        function exportLogs() {
-            showToast('导出功能开发中', 'info');
-        }
-
-        function clearLogs() {
-            document.getElementById('logConsole').innerHTML = '';
-            addLog('日志已清空', 'info');
-        }
-
-        function clearGatewayLogs() {
-            document.getElementById('gatewayTable').innerHTML = `
-                <tr>
-                    <td colspan="4" class="empty-state">
-                        <div class="empty-state-icon">📡</div>
-                        <h3>暂无接收数据</h3>
-                        <p>等待无人机回传数据...</p>
-                    </td>
-                </tr>
-            `;
-            showToast('日志已清空', 'success');
-        }
-
-        // Log helper
-        function addLog(message, type = 'info') {
-            const console = document.getElementById('logConsole');
-            const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-            const typeLabel = type === 'success' ? 'OK' : type === 'error' ? 'ERR' : type === 'warning' ? 'WRN' : 'INF';
-            
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
-            entry.innerHTML = `
-                <span class="log-time">${time}</span>
-                <span class="log-type ${type}">${typeLabel}</span>
-                <span class="log-message">${message}</span>
-            `;
-            console.insertBefore(entry, console.firstChild);
-        }
-
-        // Health check（使用动态API基础地址）
-        async function checkHealth() {
+        // ========== 库存管理 ==========
+        async function loadInventory() {
+            hideSectionError('invError');
+            const statusFilter = $id('invStatusFilter').value;
             try {
-                // 从 API_BASE 推导出 base URL（去掉路径部分）
-                const baseUrl = API_BASE.replace(/\/api\/v1$/, '').replace(/\/api\/warehouse$/, '');
-                const healthUrl = `${baseUrl}/health`;
-                const response = await fetch(healthUrl);
-                if (response.ok) {
-                    const data = await response.json();
-                    const statusEl = document.getElementById('systemStatus');
-                    const gatewayEl = document.getElementById('gatewayStatus');
+                const path = statusFilter ? `/dashboard/inventory?status=${statusFilter}` : '/dashboard/inventory';
+                const data = await apiGet(path);
+                if (data.success) {
+                    const counts = data.data.status_counts || {};
+                    $id('invNormal').textContent = counts.normal || 0;
+                    $id('invMisplaced').textContent = counts.misplaced || 0;
+                    $id('invMissing').textContent = counts.missing || 0;
+                    $id('invExtra').textContent = (counts.extra||0) + (counts.duplicate||0);
 
-                    if (data.status === 'healthy') {
-                        statusEl.querySelector('span').textContent = '系统正常';
-                        statusEl.querySelector('.status-dot').className = 'status-dot';
-                        gatewayEl.className = 'status-dot';
+                    const table = $id('invTable');
+                    if (!data.data.items || data.data.items.length === 0) {
+                        table.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="empty-state-icon">📦</div><h3>暂无库存数据</h3></td></tr>';
+                        return;
+                    }
+                    table.innerHTML = data.data.items.map(item => `
+                        <tr>
+                            <td style="font-family:monospace;color:var(--accent-cyan)">${item.sku || '-'}</td>
+                            <td style="font-family:monospace">${item.expected_sku || '-'}</td>
+                            <td>${statusBadge(item.status)}</td>
+                            <td style="font-family:monospace;font-size:0.75rem">(${item.position?.x?.toFixed(1)||0},${item.position?.y?.toFixed(1)||0},${item.position?.z?.toFixed(1)||0})</td>
+                            <td>${item.confidence ? (item.confidence*100).toFixed(0)+'%' : '-'}</td>
+                            <td>${formatTime(item.created_at)}</td>
+                        </tr>
+                    `).join('');
+                    addLog(`库存加载完成: ${data.data.total} 项`, 'success');
+                }
+            } catch (e) {
+                showSectionError('invError', '加载失败: ' + e.message);
+            }
+        }
+
+        // ========== RFID管理 ==========
+        async function loadRfidStatus() {
+            hideSectionError('rfidError');
+            try {
+                const data = await apiGet('/rfid/status');
+                if (data.success) {
+                    const info = data.data;
+                    $id('rfidStatus').textContent = info.connected ? '已连接' : '未连接';
+                    $id('rfidStatus').style.color = info.connected ? 'var(--accent-green)' : 'var(--accent-red)';
+                    $id('rfidPort').textContent = info.port || '-';
+                    $id('rfidScanState').textContent = info.scanning ? '扫描中' : '已停止';
+                    $id('rfidScanState').style.color = info.scanning ? 'var(--accent-green)' : 'var(--text-secondary)';
+
+                    const tags = info.last_tags || [];
+                    $id('rfidTagCount').textContent = tags.length;
+                    const table = $id('rfidTagTable');
+                    if (tags.length === 0) {
+                        table.innerHTML = '<tr><td colspan="4" class="empty-state"><div class="empty-state-icon">🏷️</div><h3>暂无标签数据</h3></td></tr>';
                     } else {
-                        statusEl.querySelector('span').textContent = '系统异常';
-                        statusEl.querySelector('.status-dot').className = 'status-dot warning';
-                        gatewayEl.className = 'status-dot warning';
+                        table.innerHTML = tags.map(t => `
+                            <tr>
+                                <td style="font-family:monospace;color:var(--accent-cyan)">${t.tag_id}</td>
+                                <td>${t.rssi || '-'}</td>
+                                <td>${t.antenna || '-'}</td>
+                                <td>${new Date(t.read_time*1000).toLocaleTimeString('zh-CN')}</td>
+                            </tr>
+                        `).join('');
                     }
                 }
-            } catch (error) {
-                const statusEl = document.getElementById('systemStatus');
-                statusEl.querySelector('span').textContent = '后端未连接';
-                statusEl.querySelector('.status-dot').className = 'status-dot error';
+            } catch (e) {
+                showSectionError('rfidError', 'RFID服务不可用: ' + e.message);
             }
         }
 
-        // Initialize
+        async function rfidConnect() {
+            try {
+                const data = await apiPost('/rfid/connect', {});
+                showToast(data.message || '操作完成', data.success ? 'success' : 'warning');
+                loadRfidStatus();
+            } catch (e) { showToast('连接失败: ' + e.message, 'error'); }
+        }
+
+        async function rfidRead() {
+            try {
+                const data = await apiPost('/rfid/read');
+                if (data.success && data.data) {
+                    showToast('读取标签: ' + data.data.tag_id, 'success');
+                } else {
+                    showToast(data.message || '未扫描到标签', 'info');
+                }
+                loadRfidStatus();
+            } catch (e) { showToast('读取失败: ' + e.message, 'error'); }
+        }
+
+        async function rfidWrite() {
+            const tagData = $id('rfidWriteData').value;
+            const tagId = $id('rfidWriteTag').value || null;
+            if (!tagData) { showToast('请输入要写入的数据', 'warning'); return; }
+            try {
+                const data = await apiPost('/rfid/write', { data: tagData, tag_id: tagId });
+                showToast(data.message, data.success ? 'success' : 'warning');
+            } catch (e) { showToast('写入失败: ' + e.message, 'error'); }
+        }
+
+        async function rfidStartScan() {
+            try {
+                const data = await apiPost('/rfid/scan/start');
+                showToast(data.message, 'success');
+                loadRfidStatus();
+            } catch (e) { showToast('启动失败: ' + e.message, 'error'); }
+        }
+
+        async function rfidStopScan() {
+            try {
+                const data = await apiPost('/rfid/scan/stop');
+                showToast(data.message, 'success');
+                loadRfidStatus();
+            } catch (e) { showToast('停止失败: ' + e.message, 'error'); }
+        }
+
+        async function rfidClear() {
+            try { await apiPost('/rfid/scan/clear'); loadRfidStatus(); }
+            catch (e) { showToast('清空失败', 'error'); }
+        }
+
+        // ========== 连接状态 ==========
+        async function loadConnectionStatus() {
+            hideSectionError('connError');
+            try {
+                const data = await apiGet('/system/status');
+                if (data.success) {
+                    const modules = data.data.modules;
+                    const table = $id('connTable');
+                    const rows = Object.entries(modules).map(([key, m]) => `
+                        <tr>
+                            <td>${m.name}</td>
+                            <td>${statusBadge(m.connected ? 'online' : 'offline')}</td>
+                            <td>${m.response_time_ms ? m.response_time_ms.toFixed(1)+'ms' : '-'}</td>
+                            <td style="font-size:0.75rem">${formatTime(m.last_check_time)}</td>
+                            <td style="font-size:0.75rem;color:var(--text-secondary)">${m.error_message || m.details?.port || m.details?.host || ''}</td>
+                        </tr>
+                    `);
+                    table.innerHTML = rows.join('');
+                    addLog('连接状态已刷新', 'success');
+                }
+            } catch (e) {
+                showSectionError('connError', '系统状态API不可用: ' + e.message);
+                $id('connTable').innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-secondary)">系统状态API不可用，请确保后端服务已启动</td></tr>';
+            }
+        }
+
+        // ========== 健康检查 ==========
+        async function checkHealth() {
+            try {
+                const baseUrl = API_BASE.replace(/\/api\/v1$/, '');
+                const res = await fetch(`${baseUrl}/health`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const el = $id('systemStatus');
+                    if (data.status === 'healthy') {
+                        el.querySelector('span').textContent = '系统正常';
+                        el.querySelector('.status-dot').className = 'status-dot';
+                    } else {
+                        el.querySelector('span').textContent = '部分降级';
+                        el.querySelector('.status-dot').className = 'status-dot warning';
+                    }
+                }
+            } catch (e) {
+                const el = $id('systemStatus');
+                el.querySelector('span').textContent = '后端未连接';
+                el.querySelector('.status-dot').className = 'status-dot error';
+            }
+        }
+
+        // ========== 其他功能 ==========
+        function refreshDashboard() { loadDashboard(); loadDrones(); checkHealth(); showToast('数据已刷新', 'success'); }
+        function exportLogs() { showToast('日志导出功能开发中', 'info'); }
+        function clearLogs() { $id('logConsole').innerHTML = ''; addLog('日志已清空', 'info'); }
+
+        // ========== 初始化 ==========
         document.addEventListener('DOMContentLoaded', async () => {
             await initApiBase();
+            loadDashboard();
             loadDrones();
             checkHealth();
             addLog('前端界面初始化完成', 'success');
-            
-            // Periodic health check
             setInterval(checkHealth, 30000);
+            setInterval(() => loadLiveDashboard(), 15000); // 实时看板每15s刷新
         });
     </script>
 </body>

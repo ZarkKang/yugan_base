@@ -18,8 +18,15 @@ router = APIRouter(prefix="/drones", tags=["无人机管理"])
 @router.post("/", response_model=APIResponse)
 def create_drone(drone: DroneCreate, db: Session = Depends(get_db)):
     """注册新无人机"""
-    # TODO: 实现创建逻辑
-    return APIResponse(success=True, message="创建成功")
+    from ..models.models import Drone
+    existing = db.query(Drone).filter(Drone.drone_code == drone.drone_code).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="无人机编号已存在")
+    new_drone = Drone(**drone.model_dump())
+    db.add(new_drone)
+    db.commit()
+    db.refresh(new_drone)
+    return APIResponse(success=True, message="创建成功", data={"id": new_drone.id})
 
 
 @router.get("/", response_model=List[DroneResponse])
@@ -28,8 +35,11 @@ def list_drones(
     db: Session = Depends(get_db)
 ):
     """获取无人机列表"""
-    # TODO: 实现查询逻辑
-    return []
+    from ..models.models import Drone
+    query = db.query(Drone)
+    if status:
+        query = query.filter(Drone.status == status)
+    return query.all()
 
 
 @router.get("/{drone_id}", response_model=DroneResponse)
@@ -66,3 +76,9 @@ def get_drone_position(drone_id: int, db: Session = Depends(get_db)):
         "y": 0.0,
         "z": 0.0
     })
+
+
+@router.post("/{drone_code}/heartbeat", response_model=APIResponse)
+def drone_heartbeat(drone_code: str, payload: dict, db: Session = Depends(get_db)):
+    """无人机心跳上报"""
+    return APIResponse(success=True, message="心跳已接收")
