@@ -28,6 +28,10 @@ PIP_MIRROR=${PIP_MIRROR:-""}
 VENV_DIR=${VENV_DIR:-""}
 MODE=${MODE:-"hybrid"}  # hybrid=基础设施docker+后端本地, local=全部本地, docker=全部docker
 
+# ── 日志轮转配置 ───────────────────────────────
+MAX_LOG_SIZE=${MAX_LOG_SIZE:-10485760}  # 10MB
+MAX_LOG_FILES=${MAX_LOG_FILES:-5}       # 保留5个历史日志
+
 PIP_EXTRA=""
 if [ -n "$PIP_MIRROR" ]; then
     PIP_EXTRA="-i $PIP_MIRROR --trusted-host $(echo "$PIP_MIRROR" | sed -E 's|https?://||' | sed 's|/.*||')"
@@ -78,6 +82,79 @@ check_service_ready() {
     done
     error "${name} 未在 ${max_wait}s 内就绪 (端口 $port)"
     return 1
+}
+
+# ── 日志轮转 ──────────────────────────────────
+rotate_logs() {
+    local log_dir="$SCRIPT_DIR/logs"
+    [ ! -d "$log_dir" ] && return 0
+
+    for log_file in "$log_dir"/*.log; do
+        [ ! -f "$log_file" ] && continue
+        local size
+        size=$(stat -c%s "$log_file" 2>/dev/null || echo 0)
+        if [ "$size" -gt "$MAX_LOG_SIZE" ]; then
+            local base="$(basename "$log_file" .log)"
+            local date_stamp="$(date +%Y%m%d_%H%M%S)"
+            # 归档当前日志
+            cp "$log_file" "$log_dir/${base}_${date_stamp}.log"
+            : > "$log_file"  # 清空当前日志
+            info "日志已轮转: ${base}.log (${size} bytes → ${base}_${date_stamp}.log)"
+
+            # 清理旧归档（保留最近 MAX_LOG_FILES 个）
+            local count=0
+            for old in $(ls -t "$log_dir/${base}_"*.log 2>/dev/null); do
+                count=$((count+1))
+                [ $count -gt "$MAX_LOG_FILES" ] && rm -f "$old"
+            done
+        fi
+    done
+}
+
+# ── 自动重启守护 ──────────────────────────────
+auto_restart_monitor() {
+    local name="$1" port="$2" module="$3" dir="$4" req_file="${5:-requirements.txt}"
+    local pid_file="$SCRIPT_DIR/logs/${name}.pid"
+    local log_file="$SCRIPT_DIR/logs/${name}.log"
+
+    # 检查PID文件
+    if [ -f "$pid_file" ]; then
+        local pid
+        pid=$(cat "$pid_file" 2>/dev/null)
+        if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+            warn "${name} 进程已崩溃 (PID: $pid)，尝试重启..."
+            rm -f "$pid_file"
+            start_backend_bg "$name" "$dir" "$module" "$port" "$req_file" && \
+                ok "${name} 自动重启成功" || \
+                error "${name} 自动重启失败"
+        fi
+    fi
+
+    # 检查端口是否存活
+    if ! check_port "$port"; then
+        warn "${name} 端口 $port 无响应，尝试重启..."
+        start_backend_bg "$name" "$dir" "$module" "$port" "$req_file" && \
+            ok "${name} 自动重启成功" || \
+            error "${name} 自动重启失败"
+    fi
+}
+
+# ── 守护进程入口 ──────────────────────────────
+start_daemon() {
+    info "启动自动重启守护进程 (PID: $$)"
+    local count=0
+    while true; do
+        sleep 15
+        count=$((count+1))
+        # 每15秒检查一次
+        auto_restart_monitor "无人机数据系统" "$DRONE_PORT" "app.main:app" "drone-db-prototype/backend"
+        auto_restart_monitor "仓库巡检系统" "$WAREHOUSE_PORT" "src.main:app" "warehouse-inspection-system/backend"
+        auto_restart_monitor "API网关" "$GATEWAY_PORT" "main:app" "api-gateway"
+        # 每5分钟轮转一次日志
+        if [ $((count % 20)) -eq 0 ]; then
+            rotate_logs
+        fi
+    done
 }
 
 # ── 基础设施启动 (PostgreSQL + Redis) ─────────
@@ -322,6 +399,8 @@ show_help() {
     echo "  stop        停止所有服务"
     echo "  logs [n]    查看日志（最近n行）"
     echo "  restart     重启所有服务"
+    echo "  daemon      启动守护进程（自动重启+日志轮转）"
+    echo "  rotate-logs 手动触发日志轮转"
     echo "  help        显示帮助"
     echo ""
     echo "环境变量:"
@@ -330,6 +409,8 @@ show_help() {
     echo "  MODE=hybrid    基础设施Docker+后端本地（默认）"
     echo "  VENV_DIR=~/venvs  虚拟环境存放位置（WSL加速）"
     echo "  PIP_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple"
+    echo "  MAX_LOG_SIZE=10485760  日志文件大小上限(字节,默认10MB)"
+    echo "  MAX_LOG_FILES=5        保留历史日志文件数"
     echo ""
 }
 
@@ -340,6 +421,8 @@ case "${1:-}" in
     stop)            stop_all ;;
     logs)            tail -${2:-50} logs/*.log 2>/dev/null || warn "无日志" ;;
     restart)         stop_all; sleep 2; start_all ;;
+    daemon)          start_daemon ;;
+    rotate-logs)     rotate_logs ;;
     help|--help|-h)  show_help ;;
     "")              start_all ;;
     *)               error "未知命令: $1"; show_help; exit 1 ;;

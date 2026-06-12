@@ -1,3 +1,4 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
@@ -79,3 +80,48 @@ def delete_drone(drone_id: int, db: Session = Depends(get_db), current_user: Use
     db.delete(drone)
     db.commit()
     return {"message": "无人机已删除"}
+
+
+@router.post("/{drone_code}/heartbeat")
+def drone_heartbeat(
+    drone_code: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+):
+    """无人机心跳上报"""
+    drone = db.query(Drone).filter(Drone.drone_code == drone_code).first()
+    if not drone:
+        raise HTTPException(status_code=404, detail="无人机不存在")
+    # 更新状态和位置
+    if payload.get("status"):
+        try:
+            drone.status = DroneStatus(payload["status"])
+        except ValueError:
+            pass
+    pos = payload.get("position", {})
+    if pos:
+        drone.latitude = pos.get("latitude", pos.get("x", drone.latitude))
+        drone.longitude = pos.get("longitude", pos.get("y", drone.longitude))
+        drone.altitude = pos.get("altitude", pos.get("z", drone.altitude))
+    db.commit()
+    return {"message": "心跳已接收", "success": True}
+
+
+@router.get("/{drone_code}/position")
+def get_drone_position(
+    drone_code: str,
+    db: Session = Depends(get_db),
+):
+    """获取无人机当前位置"""
+    drone = db.query(Drone).filter(Drone.drone_code == drone_code).first()
+    if not drone:
+        raise HTTPException(status_code=404, detail="无人机不存在")
+    return {
+        "success": True,
+        "data": {
+            "latitude": drone.latitude,
+            "longitude": drone.longitude,
+            "altitude": drone.altitude,
+            "updated_at": drone.updated_at,
+        }
+    }

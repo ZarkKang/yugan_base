@@ -16,6 +16,11 @@ services:
       - postgres-data:/var/lib/postgresql/data
     networks:
       - yugan-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -26,6 +31,11 @@ services:
       - redis-data:/data
     networks:
       - yugan-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
 
   # ─ 后端服务 ──────────────────────────────
   # 无人机数据系统后端
@@ -35,6 +45,11 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/warehouse_inspection
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - ./drone-db-prototype/backend:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -48,13 +63,24 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8001:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/warehouse_inspection
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - ./warehouse-inspection-system/backend:/app
+      - ./warehouse-inspection-system/storage:/app/storage
     devices:
-      # 串口设备映射，RFID读卡器自动探测
+      # Linux 串口设备映射
       - "/dev/ttyUSB0:/dev/ttyUSB0"
       - "/dev/ttyUSB1:/dev/ttyUSB1"
       - "/dev/ttyACM0:/dev/ttyACM0"
+      # WSL COM端口映射 (Windows COM7 → WSL /dev/ttyS6)
+      - "/dev/ttyS6:/dev/ttyS6"
     privileged: true
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
     networks:
@@ -69,6 +95,8 @@ services:
       - "8080:8080"
     environment:
       - IS_DOCKER=true
+      - DRONE_DB_URL=http://drone-db:8000
+      - WAREHOUSE_URL=http://warehouse:8000
     depends_on:
       - drone-db
       - warehouse
