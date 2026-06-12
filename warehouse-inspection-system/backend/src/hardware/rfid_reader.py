@@ -239,10 +239,10 @@ class RFIDReader:
 
     def _try_wsl_port(self, port: str) -> bool:
         """WSL COM端口探测 - 直接使用文件描述符"""
-        import os
+        import os, select
         fd = None
         try:
-            fd = os.open(port, os.O_RDWR | os.O_NOCTTY)
+            fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
             logger.debug(f"[RFID] WSL打开 {port} fd={fd}")
 
             # 发送获取模块信息指令
@@ -251,22 +251,24 @@ class RFIDReader:
             time.sleep(0.5)
 
             # 读取响应
-            for _ in range(10):
+            buf = bytearray()
+            for _ in range(20):
                 try:
-                    data = os.read(fd, 256)
-                    if not data:
-                        time.sleep(0.1)
+                    ready, _, _ = select.select([fd], [], [], 0.3)
+                    if ready:
+                        data = os.read(fd, 256)
+                        if data:
+                            buf.extend(data)
+                    else:
+                        # 没有数据，检查是否已经收到完整帧
+                        if len(buf) >= 7:
+                            frame = self._parse_frame_from_buf(buf)
+                            if frame:
+                                ftype, fcmd, params = self._parse_response(frame)
+                                if ftype == TYPE_RESPONSE and fcmd == CMD_GET_MODULE_INFO:
+                                    logger.info(f"[RFID] WSL探测成功 {port}: {params.hex()}")
+                                    return True
                         continue
-
-                    # 临时包装为可解析的格式
-                    self._ws_temp_buf = getattr(self, '_ws_temp_buf', bytearray())
-                    self._ws_temp_buf.extend(data)
-                    frame = self._read_frame_from_buf(timeout=0.2)
-                    if frame:
-                        ftype, fcmd, params = self._parse_response(frame)
-                        if ftype == TYPE_RESPONSE and fcmd == CMD_GET_MODULE_INFO:
-                            logger.info(f"[RFID] WSL探测成功 {port}: {params.hex()}")
-                            return True
                 except OSError:
                     break
 
@@ -276,14 +278,19 @@ class RFIDReader:
             return False
         finally:
             if fd is not None:
-                os.close(fd)
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
 
     def _read_frame_from_buf(self, timeout: float = 2.0) -> Optional[bytes]:
         """从临时缓冲区读取帧"""
-        if not hasattr(self, '_ws_temp_buf'):
-            self._ws_temp_buf = bytearray()
-        buf = self._ws_temp_buf
+        buf = self._parse_frame_from_buf(self._ws_temp_buf)
+        return buf
 
+    @staticmethod
+    def _parse_frame_from_buf(buf: bytearray) -> Optional[bytes]:
+        """从缓冲区解析一个完整帧（静态方法）"""
         # 查找帧头
         header_idx = buf.find(bytes([FRAME_HEADER]))
         if header_idx < 0:
@@ -313,7 +320,7 @@ class RFIDReader:
             return None
 
         # 验证校验和
-        expected_cs = self._calc_checksum(frame[1:-2])
+        expected_cs = RFIDReader._calc_checksum(frame[1:-2])
         actual_cs = frame[-2]
         if expected_cs != actual_cs:
             return None
@@ -356,9 +363,9 @@ class RFIDReader:
 
     def _connect_wsl(self, port: str) -> bool:
         """WSL COM端口连接 - 直接使用文件描述符"""
-        import os
+        import os, select, fcntl
         try:
-            fd = os.open(port, os.O_RDWR | os.O_NOCTTY)
+            fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
             # 创建一个包装类，兼容serial.py的接口
             class WslSerial:
                 def __init__(self, fd, port):
@@ -368,13 +375,19 @@ class RFIDReader:
                     self.is_connected = True
                 def write(self, data: bytes) -> int:
                     return os.write(self.fd, data)
-                def read(self, size: int = 1) -> Optional[bytes]:
+                def read(self, size: int = 1, timeout: float = 0.1) -> Optional[bytes]:
                     try:
-                        return os.read(self.fd, size)
+                        ready, _, _ = select.select([self.fd], [], [], timeout)
+                        if ready:
+                            return os.read(self.fd, size)
+                        return b''
                     except OSError:
                         return None
                 def disconnect(self):
-                    os.close(self.fd)
+                    try:
+                        os.close(self.fd)
+                    except OSError:
+                        pass
                     self.is_open = False
                     self.is_connected = False
             self.serial = WslSerial(fd, port)

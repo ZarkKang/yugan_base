@@ -30,7 +30,7 @@ DEFAULT_DRONE = {
     "drone_name": "测试无人机",
     "model": "DJI-M300",
     "status": "offline",
-    "serial_number": "TEST-SN-001",
+    "battery_level": 100.0,
 }
 
 
@@ -73,7 +73,7 @@ def seed_data() -> None:
                 drone_name=DEFAULT_DRONE["drone_name"],
                 model=DEFAULT_DRONE["model"],
                 status=DEFAULT_DRONE["status"],
-                serial_number=DEFAULT_DRONE["serial_number"],
+                battery_level=DEFAULT_DRONE.get("battery_level", 100.0),
             )
             db.add(drone)
             logger.info(f"✅ 测试无人机创建成功: {DEFAULT_DRONE['drone_code']}")
