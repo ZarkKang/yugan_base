@@ -239,3 +239,38 @@ class PaginatedResponse(BaseModel):
     page: int = 1
     page_size: int = 20
     items: List[dict] = []
+
+
+# ========== 认证 Schema ==========
+
+class LoginRequest(BaseModel):
+    """登录请求"""
+    username: str
+    password: str
+
+
+class TokenData(BaseModel):
+    """Token数据"""
+    username: Optional[str] = None
+
+
+class UserResponse(BaseModel):
+    """用户响应"""
+    id: int
+    username: str
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    role: str
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+
+class LoginResponse(BaseModel):
+    """登录响应"""
+    success: bool
+    message: str
+    access_token: str
+    token_type: str = "bearer"
+    user: Optional[UserResponse] = None

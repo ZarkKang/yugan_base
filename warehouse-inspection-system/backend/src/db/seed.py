@@ -3,17 +3,13 @@
 """
 import logging
 from datetime import datetime
-from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from .database import SessionLocal
 from ..models.models import User, Drone
+from ..core.security import get_password_hash, verify_password
 
 logger = logging.getLogger(__name__)
-
-# 密码加密上下文
-# bcrypt__truncate_error=False: 静默截断超过72字节的密码，避免报错
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__truncate_error=False)
 
 # 默认管理员账户
 DEFAULT_ADMIN = {
@@ -50,9 +46,16 @@ def seed_data() -> None:
     try:
         # 创建管理员
         if _user_exists(db, DEFAULT_ADMIN["username"]):
-            logger.info("默认管理员用户已存在，跳过创建")
+            # 验证旧密码是否与新哈希上下文兼容，如不兼容则重置
+            admin_user = db.query(User).filter(User.username == DEFAULT_ADMIN["username"]).first()
+            if admin_user and not verify_password(DEFAULT_ADMIN["password"], admin_user.hashed_password):
+                admin_user.hashed_password = get_password_hash(DEFAULT_ADMIN["password"])
+                db.commit()
+                logger.info(f"默认管理员密码哈希已更新")
+            else:
+                logger.info("默认管理员用户已存在，跳过创建")
         else:
-            hashed = pwd_context.hash(DEFAULT_ADMIN["password"])
+            hashed = get_password_hash(DEFAULT_ADMIN["password"])
             admin = User(
                 username=DEFAULT_ADMIN["username"],
                 email=DEFAULT_ADMIN["email"],

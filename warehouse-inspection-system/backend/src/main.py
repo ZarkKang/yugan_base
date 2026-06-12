@@ -10,7 +10,7 @@ from .core.config import settings
 from .db.database import init_db, engine
 from .db.redis import redis_client
 from .db.seed import seed_data
-from .api import inspection, drones, gateway, images, rfid, system, dashboard
+from .api import auth, inspection, drones, gateway, images, rfid, system, dashboard
 
 # 配置日志
 logging.basicConfig(
@@ -64,6 +64,7 @@ app.add_middleware(
 )
 
 # 注册路由
+app.include_router(auth.router, prefix="/api/v1")
 app.include_router(inspection.router, prefix="/api/v1")
 app.include_router(drones.router, prefix="/api/v1")
 app.include_router(gateway.router, prefix="/api/v1")
