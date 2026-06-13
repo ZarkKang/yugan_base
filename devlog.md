@@ -1,5 +1,50 @@
 # 域感智能 开发日志
 
+## 2026-06-13 修复：完善注册系统 + ensure-admin 兜底机制
+- **类型**：[修复] + [新增功能]
+- **影响范围**：全局（drone-db-prototype + warehouse-inspection-system）
+- **详细内容**：
+  1. drone-db-prototype `init_data.py` 重构：`ensure_admin()` 函数每次启动都验证 admin 密码兼容性，bcrypt版本变更导致的hash不兼容自动修复。
+  2. warehouse-inspection-system `seed.py` 重构：admin 密码验证 try/except 容错，验证异常时自动重置。
+  3. 两个后端均新增 `POST /api/auth/ensure-admin` 端点：创建/修复 admin 用户并重置为 `admin123`，前端登录最后兜底。
+  4. 两套前端登录流程增强为 5 步：localStorage恢复 → auto-login → auto-register → ensure-admin → 显示登录页。
+- **相关文件**：
+  - `drone-db-prototype/backend/app/init_data.py`（重写 ensure_admin）
+  - `drone-db-prototype/backend/app/routers/auth.py`（新增 /ensure-admin）
+  - `drone-db-prototype/frontend/src/index.html`（5步登录流程）
+  - `warehouse-inspection-system/backend/src/db/seed.py`（增强容错）
+  - `warehouse-inspection-system/backend/src/api/auth.py`（新增 /ensure-admin）
+  - `warehouse-inspection-system/frontend/index.html`（5步登录流程）
+  - `devlog.md`
+- **后续动作**：重启服务验证登录流程。
+
+## 2026-06-13 修复：数据库登录系统自动登录 + 注册兜底
+- **类型**：[修复]
+- **影响范围**：全局（drone-db-prototype + warehouse-inspection-system）
+- **详细内容**：
+  1. drone-db-prototype 添加 `startup` 事件确保 `init_default_data()` 在应用启动时执行，防止模块级执行时静默失败。
+  2. 两套前端 auto-login 增强：登录失败 → 自动注册 admin/admin123 → 重试登录 → 最终失败则显示登录页。
+  3. warehouse-inspection-system `POST /auth/register` 端点添加 `Form()` 注解，支持 `application/x-www-form-urlencoded` 格式。
+- **相关文件**：
+  - `drone-db-prototype/backend/app/main.py`（添加 startup 事件）
+  - `drone-db-prototype/frontend/src/index.html`（增强 auto-login）
+  - `warehouse-inspection-system/frontend/index.html`（增强 auto-login）
+  - `warehouse-inspection-system/backend/src/api/auth.py`（register 添加 Form 注解）
+- **后续动作**：重启服务后验证自动登录是否成功。
+
+## 2026-06-13 修复：前端认证 + RFID诊断工具
+- **类型**：[修复] + [新增功能]
+- **影响范围**：全局（drone-db-prototype + warehouse-inspection-system + RFID）
+- **详细内容**：
+  1. 修复 drone-db-prototype 前端 `TOKEN='dev-bypass'` 导致所有 API 请求无 Authorization 头的问题（401 → "请求未授权"）。改为 init 时自动用默认账号 admin/admin123 登录获取 JWT token，存入 localStorage，后续请求自动附加 Bearer token。
+  2. 修复 warehouse-inspection-system 前端同样问题，同步改为自动登录机制。
+  3. 新增 `GET /api/v1/rfid/diagnose` 诊断端点：检测 pyserial 安装状态、串口列表、RFID 连接状态、平台特定提示（CP2102 驱动链接、Linux 权限提示）。
+- **相关文件**：
+  - `drone-db-prototype/frontend/src/index.html`（修改）
+  - `warehouse-inspection-system/frontend/index.html`（修改）
+  - `warehouse-inspection-system/backend/src/api/rfid.py`（新增 diagnose 端点）
+- **后续动作**：需验证默认账号 admin/admin123 是否已在 seed 数据中创建；运行 RFID 诊断端点确认硬件状态。
+
 ## 2026-06-13 RFID驱动重构 + 自动入库功能
 - **类型**：[新增功能] + [重构]
 - **影响范围**：仓库巡检系统

@@ -44,28 +44,31 @@ def seed_data() -> None:
     """初始化默认管理员用户和测试无人机"""
     db = SessionLocal()
     try:
-        # 创建管理员
-        if _user_exists(db, DEFAULT_ADMIN["username"]):
-            # 验证旧密码是否与新哈希上下文兼容，如不兼容则重置
-            admin_user = db.query(User).filter(User.username == DEFAULT_ADMIN["username"]).first()
-            if admin_user and not verify_password(DEFAULT_ADMIN["password"], admin_user.hashed_password):
-                admin_user.hashed_password = get_password_hash(DEFAULT_ADMIN["password"])
-                db.commit()
-                logger.info(f"默认管理员密码哈希已更新")
-            else:
-                logger.info("默认管理员用户已存在，跳过创建")
-        else:
-            hashed = get_password_hash(DEFAULT_ADMIN["password"])
-            admin = User(
+        # 创建或修复管理员
+        admin_user = db.query(User).filter(User.username == DEFAULT_ADMIN["username"]).first()
+        if admin_user is None:
+            admin_user = User(
                 username=DEFAULT_ADMIN["username"],
                 email=DEFAULT_ADMIN["email"],
-                hashed_password=hashed,
+                hashed_password=get_password_hash(DEFAULT_ADMIN["password"]),
                 full_name=DEFAULT_ADMIN["full_name"],
                 role=DEFAULT_ADMIN["role"],
                 is_active=True,
             )
-            db.add(admin)
+            db.add(admin_user)
             logger.info(f"✅ 默认管理员创建成功: {DEFAULT_ADMIN['username']}")
+        else:
+            # 每次都验证密码兼容性，防止bcrypt版本变更导致hash不兼容
+            try:
+                if not verify_password(DEFAULT_ADMIN["password"], admin_user.hashed_password):
+                    admin_user.hashed_password = get_password_hash(DEFAULT_ADMIN["password"])
+                    logger.info("🔄 管理员密码哈希已刷新（旧hash不兼容）")
+            except Exception:
+                admin_user.hashed_password = get_password_hash(DEFAULT_ADMIN["password"])
+                logger.warning("🔄 管理员密码重置（验证异常，可能是bcrypt版本变更）")
+            if not admin_user.is_active:
+                admin_user.is_active = True
+                logger.info("🔄 管理员账户已重新激活")
 
         # 创建测试无人机
         if _drone_exists(db, DEFAULT_DRONE["drone_code"]):

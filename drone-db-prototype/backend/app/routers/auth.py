@@ -7,6 +7,7 @@ from ..core.security import verify_password, create_access_token, get_password_h
 from ..core.config import settings
 from ..models.user import User
 from ..schemas.user import UserCreate, UserResponse, Token
+from ..init_data import ensure_admin
 
 router = APIRouter(prefix="/api/auth", tags=["认证"])
 
@@ -51,3 +52,15 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/ensure-admin")
+def ensure_admin_user(db: Session = Depends(get_db)):
+    """确保 admin 用户存在且密码正确 — 登录兜底"""
+    try:
+        admin = ensure_admin(db)
+        db.commit()
+        return {"success": True, "message": "admin 用户已就绪", "username": admin.username}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))

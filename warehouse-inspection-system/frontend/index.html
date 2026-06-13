@@ -3,551 +3,1302 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>域感智能 - 仓库巡检系统</title>
+    <title>域感智能 — 仓库巡检系统</title>
     <style>
         :root {
-            --bg: #0f172a; --surface: #1e293b; --border: #334155;
-            --text: #e2e8f0; --muted: #94a3b8; --primary: #3b82f6;
-            --success: #22c55e; --warning: #f59e0b; --danger: #ef4444;
-            --radius: 8px; --shadow: 0 4px 24px rgba(0,0,0,.3);
+            --bg: #0a0f18; --surface: #111827; --surface2: #1a2332;
+            --border: #1e2d3d; --border2: #243447;
+            --text: #e2e8f0; --text2: #b0bec5; --muted: #5f7d94;
+            --primary: #3b82f6; --primary2: #2563eb;
+            --success: #10b981; --warning: #f59e0b; --danger: #ef4444;
+            --radius: 6px; --radius-lg: 10px;
+            --sidebar-w: 220px;
+            --font: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+            --mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
         }
-        * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { font-size: 14px; }
+        body {
+            font-family: var(--font); background: var(--bg); color: var(--text);
+            min-height: 100vh; overflow-x: hidden;
+        }
         a { color: var(--primary); text-decoration: none; }
 
-        /* ── Login ── */
-        #login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
-        .login-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 40px; width: 100%; max-width: 400px; box-shadow: var(--shadow); }
-        .login-box h1 { text-align: center; margin-bottom: 8px; font-size: 24px; }
-        .login-box .sub { text-align: center; color: var(--muted); margin-bottom: 28px; font-size: 14px; }
-        .form-group { margin-bottom: 16px; }
-        .form-group label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
-        .form-group input { width: 100%; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px; outline: none; transition: border-color .2s; }
-        .form-group input:focus { border-color: var(--primary); }
-        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 20px; border: none; border-radius: var(--radius); font-size: 14px; cursor: pointer; transition: all .2s; }
-        .btn-primary { background: var(--primary); color: #fff; width: 100%; }
-        .btn-primary:hover { opacity: .9; }
-        .btn-sm { padding: 6px 12px; font-size: 12px; }
+        /* ── Login Screen ── */
+        #login-screen {
+            display: flex; align-items: center; justify-content: center;
+            min-height: 100vh; padding: 24px;
+            background: radial-gradient(ellipse at 30% 20%, rgba(59,130,246,.08) 0%, transparent 60%),
+                        radial-gradient(ellipse at 70% 80%, rgba(16,185,129,.06) 0%, transparent 60%),
+                        var(--bg);
+        }
+        .login-panel {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); padding: 44px 40px; width: 100%;
+            max-width: 400px; box-shadow: 0 8px 40px rgba(0,0,0,.4);
+        }
+        .login-panel .brand { text-align: center; margin-bottom: 32px; }
+        .login-panel .brand h1 { font-size: 26px; font-weight: 700; letter-spacing: -.5px; }
+        .login-panel .brand span { display: block; color: var(--primary); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
+        .field { margin-bottom: 16px; }
+        .field label { display: block; margin-bottom: 6px; font-size: 12px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: .5px; }
+        .field input, .field select {
+            width: 100%; padding: 10px 12px; background: var(--bg);
+            border: 1px solid var(--border); border-radius: var(--radius);
+            color: var(--text); font-size: 14px; font-family: var(--font); outline: none;
+            transition: border-color .15s, box-shadow .15s;
+        }
+        .field input:focus, .field select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
+        .field select { cursor: pointer; }
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+            padding: 9px 16px; border: none; border-radius: var(--radius);
+            font-size: 13px; font-family: var(--font); font-weight: 500;
+            cursor: pointer; transition: all .15s; white-space: nowrap;
+        }
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-primary:hover { background: var(--primary2); }
         .btn-danger { background: var(--danger); color: #fff; }
+        .btn-danger:hover { opacity: .85; }
         .btn-success { background: var(--success); color: #fff; }
-        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
-        .btn-outline:hover { border-color: var(--primary); }
-        .err-msg { background: rgba(239,68,68,.15); color: var(--danger); padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; display: none; }
+        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text2); }
+        .btn-outline:hover { border-color: var(--primary); color: var(--text); }
+        .btn-ghost { background: transparent; color: var(--muted); padding: 6px 10px; }
+        .btn-ghost:hover { color: var(--text); background: rgba(255,255,255,.04); }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
+        .btn-block { width: 100%; }
+        .login-err { background: rgba(239,68,68,.12); color: var(--danger); padding: 10px 14px; border-radius: var(--radius); font-size: 13px; margin-bottom: 16px; display: none; }
 
-        /* ── Main Layout ── */
-        #app-screen { display: none; }
-        .app-header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; }
-        .app-header h2 { font-size: 16px; font-weight: 600; }
-        .header-right { display: flex; align-items: center; gap: 12px; }
-        .header-right .role-badge { background: var(--primary); color: #fff; padding: 2px 10px; border-radius: 20px; font-size: 11px; }
-        .header-right .user-name { font-size: 13px; color: var(--muted); }
+        /* ── App Layout ── */
+        #app-screen { display: none; height: 100vh; }
+        .app-shell { display: flex; height: 100vh; }
 
-        /* ── Tabs ── */
-        .tab-nav { display: flex; gap: 0; background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; }
-        .tab-nav button { padding: 12px 20px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); font-size: 13px; cursor: pointer; transition: all .2s; }
-        .tab-nav button:hover { color: var(--text); }
-        .tab-nav button.active { color: var(--primary); border-bottom-color: var(--primary); }
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-w); min-width: var(--sidebar-w);
+            background: var(--surface); border-right: 1px solid var(--border);
+            display: flex; flex-direction: column; overflow-y: auto;
+            position: relative; z-index: 10;
+        }
+        .sidebar-brand {
+            padding: 20px 20px 16px; border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 10px;
+        }
+        .sidebar-brand .logo {
+            width: 32px; height: 32px; background: var(--primary);
+            border-radius: 8px; display: flex; align-items: center; justify-content: center;
+            font-size: 16px; color: #fff; font-weight: 700; flex-shrink: 0;
+        }
+        .sidebar-brand .name { font-size: 14px; font-weight: 600; }
+        .sidebar-brand .ver { font-size: 10px; color: var(--muted); }
+        .sidebar-nav { flex: 1; padding: 12px 8px; }
+        .sidebar-nav .nav-section {
+            font-size: 10px; color: var(--muted); text-transform: uppercase;
+            letter-spacing: 1.5px; padding: 12px 12px 8px; font-weight: 600;
+        }
+        .nav-item {
+            display: flex; align-items: center; gap: 10px;
+            padding: 9px 12px; border-radius: var(--radius);
+            font-size: 13px; color: var(--text2); cursor: pointer;
+            transition: all .12s; margin-bottom: 2px; position: relative;
+        }
+        .nav-item:hover { background: rgba(255,255,255,.04); color: var(--text); }
+        .nav-item.active { background: rgba(59,130,246,.12); color: var(--primary); font-weight: 500; }
+        .nav-item .icon { width: 18px; text-align: center; font-size: 14px; flex-shrink: 0; }
+        .nav-item .dot { width: 6px; height: 6px; border-radius: 50%; margin-left: auto; flex-shrink: 0; }
+        .nav-item .dot.green { background: var(--success); }
+        .nav-item .dot.yellow { background: var(--warning); }
+        .nav-item .dot.red { background: var(--danger); }
+        .sidebar-footer {
+            padding: 12px 16px; border-top: 1px solid var(--border);
+            display: flex; align-items: center; gap: 10px;
+        }
+        .sidebar-footer .avatar {
+            width: 28px; height: 28px; border-radius: 50%; background: var(--primary);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; color: #fff; font-weight: 600; flex-shrink: 0;
+        }
+        .sidebar-footer .info { font-size: 12px; line-height: 1.4; }
+        .sidebar-footer .info .role { color: var(--muted); font-size: 10px; }
 
-        /* ── Content ── */
-        .tab-content { padding: 24px; display: none; }
-        .tab-content.active { display: block; }
+        /* Main */
+        .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+        .topbar {
+            height: 48px; min-height: 48px; background: var(--surface);
+            border-bottom: 1px solid var(--border); display: flex;
+            align-items: center; justify-content: space-between; padding: 0 24px;
+        }
+        .topbar .page-title { font-size: 15px; font-weight: 600; }
+        .topbar .actions { display: flex; gap: 8px; align-items: center; }
+        .topbar .live-indicator { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+        .topbar .live-indicator .pulse {
+            width: 6px; height: 6px; border-radius: 50%; background: var(--success);
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+        .btn-back {
+            background: rgba(59,130,246,.15); color: var(--primary); border: 1px solid rgba(59,130,246,.25);
+            padding: 6px 12px; border-radius: var(--radius); font-size: 12px; cursor: pointer;
+            transition: all .15s; font-family: var(--font); display: flex; align-items: center; gap: 4px;
+        }
+        .btn-back:hover { background: rgba(59,130,246,.25); }
 
-        /* ── Stats ── */
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
-        .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
-        .stat-card .label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-        .stat-card .value { font-size: 28px; font-weight: 700; }
-        .stat-card .value.green { color: var(--success); }
-        .stat-card .value.blue { color: var(--primary); }
-        .stat-card .value.yellow { color: var(--warning); }
-        .stat-card .value.red { color: var(--danger); }
+        .content { flex: 1; overflow-y: auto; padding: 24px; }
+        .page { display: none; }
+        .page.active { display: block; }
 
-        /* ── Table ── */
-        .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-        .panel-header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
-        .panel-header h3 { font-size: 14px; font-weight: 600; }
+        /* ── Stats Row ── */
+        .stat-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+        .stat-item {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 16px 18px;
+            display: flex; flex-direction: column; gap: 4px;
+        }
+        .stat-item .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+        .stat-item .stat-value { font-size: 26px; font-weight: 700; font-family: var(--mono); }
+        .stat-item .stat-sub { font-size: 11px; color: var(--text2); }
+        .stat-item .stat-value.c-blue { color: var(--primary); }
+        .stat-item .stat-value.c-green { color: var(--success); }
+        .stat-item .stat-value.c-yellow { color: var(--warning); }
+        .stat-item .stat-value.c-red { color: var(--danger); }
+
+        /* ── Panel / Table ── */
+        .panel {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); overflow: hidden; margin-bottom: 16px;
+        }
+        .panel-header {
+            padding: 12px 18px; border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between;
+            font-size: 13px; font-weight: 600;
+        }
+        .panel-header .count { font-size: 11px; color: var(--muted); font-weight: 400; }
         table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 10px 16px; text-align: left; font-size: 13px; border-bottom: 1px solid var(--border); }
-        th { color: var(--muted); font-weight: 500; background: rgba(255,255,255,.02); }
-        tr:hover { background: rgba(255,255,255,.03); }
-        .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; }
-        .badge-success { background: rgba(34,197,94,.2); color: var(--success); }
-        .badge-warning { background: rgba(245,158,11,.2); color: var(--warning); }
-        .badge-danger { background: rgba(239,68,68,.2); color: var(--danger); }
-        .badge-info { background: rgba(59,130,246,.2); color: var(--primary); }
-        .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 14px; }
+        th, td { padding: 10px 14px; text-align: left; font-size: 12.5px; border-bottom: 1px solid var(--border2); }
+        th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; background: rgba(0,0,0,.15); }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: rgba(255,255,255,.02); }
+        .badge {
+            display: inline-block; padding: 3px 8px; border-radius: 10px;
+            font-size: 10.5px; font-weight: 500; letter-spacing: .3px;
+        }
+        .badge-success { background: rgba(16,185,129,.15); color: var(--success); }
+        .badge-warning { background: rgba(245,158,11,.15); color: var(--warning); }
+        .badge-danger { background: rgba(239,68,68,.15); color: var(--danger); }
+        .badge-info { background: rgba(59,130,246,.15); color: var(--primary); }
+        .badge-muted { background: rgba(100,116,139,.15); color: var(--muted); }
+        .empty-row td { text-align: center; padding: 36px; color: var(--muted); font-size: 13px; }
+        .row-actions { display: flex; gap: 4px; }
+        .mono { font-family: var(--mono); font-size: 11px; }
+        .truncate { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* Progress bar */
+        .progress-bar {
+            height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 4px;
+        }
+        .progress-bar .fill { height: 100%; background: var(--primary); border-radius: 2px; transition: width .3s; }
 
         /* ── Modal ── */
-        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 100; align-items: center; justify-content: center; }
+        .modal-overlay {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65);
+            z-index: 100; align-items: center; justify-content: center;
+            backdrop-filter: blur(2px);
+        }
         .modal-overlay.show { display: flex; }
-        .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; width: 90%; max-width: 480px; max-height: 80vh; overflow-y: auto; }
-        .modal h3 { margin-bottom: 16px; font-size: 16px; }
+        .modal {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius-lg); padding: 24px; width: 90%; max-width: 520px;
+            max-height: 80vh; overflow-y: auto; box-shadow: 0 16px 48px rgba(0,0,0,.5);
+            animation: modalIn .2s ease;
+        }
+        @keyframes modalIn { from { opacity: 0; transform: scale(.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+        .modal h3 { margin-bottom: 20px; font-size: 16px; font-weight: 600; }
         .modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+        .modal-wide { max-width: 680px; }
 
         /* ── Toast ── */
-        .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: var(--radius); color: #fff; font-size: 13px; z-index: 200; animation: slideIn .3s ease; }
+        .toast-container { position: fixed; top: 16px; right: 16px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }
+        .toast {
+            padding: 10px 18px; border-radius: var(--radius); color: #fff; font-size: 13px;
+            font-family: var(--font); animation: toastIn .25s ease; max-width: 360px;
+            box-shadow: 0 4px 16px rgba(0,0,0,.3);
+        }
         .toast.success { background: var(--success); }
         .toast.error { background: var(--danger); }
-        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .toast.info { background: var(--primary); }
+        @keyframes toastIn { from { transform: translateX(60px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        /* ── Image Grid ── */
+        .img-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+        .img-card {
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: var(--radius); overflow: hidden; cursor: pointer; transition: border-color .15s;
+        }
+        .img-card:hover { border-color: var(--primary); }
+        .img-card .thumb {
+            width: 100%; height: 140px; object-fit: cover; display: block;
+            background: var(--bg);
+        }
+        .img-card .meta { padding: 8px 10px; font-size: 11px; }
+        .img-card .meta .status-row { display: flex; justify-content: space-between; align-items: center; }
+        .img-card .meta .sku { font-family: var(--mono); font-size: 11px; color: var(--primary); }
+
+        /* ── Live Feed ── */
+        .live-feed { max-height: 300px; overflow-y: auto; }
+        .live-feed .item {
+            padding: 8px 10px; font-size: 12px; border-bottom: 1px solid var(--border2);
+            display: flex; align-items: center; gap: 8px;
+        }
+        .live-feed .item .time { color: var(--muted); font-family: var(--mono); font-size: 10px; white-space: nowrap; }
+
+        /* ── Gateway log ── */
+        .log-line { padding: 6px 12px; font-family: var(--mono); font-size: 11px; border-bottom: 1px solid var(--border2); color: var(--text2); }
+        .log-line .ts { color: var(--muted); margin-right: 8px; }
+
+        /* ── Two Column ── */
+        .col2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 900px) { .col2 { grid-template-columns: 1fr; } }
 
         /* ── Responsive ── */
         @media (max-width: 768px) {
-            .stats-grid { grid-template-columns: repeat(2, 1fr); }
-            .tab-nav { overflow-x: auto; }
+            .sidebar { width: 56px; min-width: 56px; }
+            .sidebar-brand .name, .sidebar-brand .ver,
+            .nav-item span:not(.icon), .nav-section,
+            .sidebar-footer .info { display: none; }
+            .nav-item { justify-content: center; padding: 10px; }
+            .stat-row { grid-template-columns: repeat(2, 1fr); }
         }
     </style>
 </head>
 <body>
 
-<!-- ═══════════════════ 登录界面 ═══════════════════ -->
-<div id="login-screen">
-    <div class="login-box">
-        <h1>域感智能</h1>
-        <p class="sub">仓库巡检管理系统</p>
-        <div class="err-msg" id="login-err"></div>
-        <form id="login-form" onsubmit="handleLogin(event)">
-            <div class="form-group">
-                <label>用户名</label>
-                <input type="text" id="login-username" placeholder="admin" required autofocus>
-            </div>
-            <div class="form-group">
-                <label>密码</label>
-                <input type="password" id="login-password" placeholder="admin123" required>
-            </div>
-            <button type="submit" class="btn btn-primary" id="login-btn">登 录</button>
+<!-- ═══════════════════ LOGIN ═══════════════════ -->
+<div id="login-screen" style="display:none;">
+    <div class="login-panel">
+        <div class="brand">
+            <h1>域感智能</h1>
+            <span>Warehouse Inspection System</span>
+        </div>
+        <div class="login-err" id="login-err"></div>
+        <form onsubmit="handleLogin(event)">
+            <div class="field"><label>用户名</label><input type="text" id="l-user" placeholder="admin" required autofocus></div>
+            <div class="field"><label>密码</label><input type="password" id="l-pass" placeholder="admin123" required></div>
+            <button type="submit" class="btn btn-primary btn-block" id="l-btn">登 录</button>
         </form>
     </div>
 </div>
 
-<!-- ═══════════════════ 主界面 ═══════════════════ -->
+<!-- ═══════════════════ APP ═══════════════════ -->
 <div id="app-screen">
-    <header class="app-header">
-        <h2>域感智能 - 仓库巡检系统</h2>
-        <div class="header-right">
-            <span class="role-badge" id="user-role"></span>
-            <span class="user-name" id="user-name"></span>
-            <button class="btn btn-sm btn-outline" onclick="logout()">退出</button>
-        </div>
-    </header>
+<div class="app-shell">
 
-    <nav class="tab-nav">
-        <button class="active" onclick="switchTab('dashboard')">实时看板</button>
-        <button onclick="switchTab('drones')">无人机管理</button>
-        <button onclick="switchTab('tasks')">任务管理</button>
-        <button onclick="switchTab('records')">巡检记录</button>
+<!-- Sidebar -->
+<aside class="sidebar">
+    <div class="sidebar-brand">
+        <div class="logo">域</div>
+        <div><div class="name">域感智能</div><div class="ver">巡检系统 v1.0</div></div>
+    </div>
+    <nav class="sidebar-nav" id="sidebar-nav">
+        <div class="nav-section">概览</div>
+        <div class="nav-item active" data-page="dashboard"><span class="icon">◈</span> 实时看板</div>
+        <div class="nav-section">资源管理</div>
+        <div class="nav-item" data-page="drones"><span class="icon">✈</span> 无人机</div>
+        <div class="nav-item" data-page="tasks"><span class="icon">☰</span> 巡检任务</div>
+        <div class="nav-item" data-page="records"><span class="icon">▤</span> 巡检记录</div>
+        <div class="nav-item" data-page="shelves"><span class="icon">▦</span> 货架管理</div>
+        <div class="nav-item" data-page="skus"><span class="icon">◎</span> SKU管理</div>
+        <div class="nav-section">数据</div>
+        <div class="nav-item" data-page="images"><span class="icon">▣</span> 图像管理</div>
+        <div class="nav-item" data-page="videos"><span class="icon">▶</span> 视频管理</div>
+        <div class="nav-item" data-page="gateway"><span class="icon">⇋</span> 数据网关</div>
+        <div class="nav-section">系统</div>
+        <div class="nav-item" data-page="system"><span class="icon">⚙</span> 系统状态</div>
+        <div class="nav-item" data-page="rfid_settings"><span class="icon">⊞</span> RFID设置</div>
     </nav>
+    <div class="sidebar-footer">
+        <div class="avatar" id="sb-avatar">A</div>
+        <div class="info">
+            <div id="sb-name">admin</div>
+            <div class="role" id="sb-role">管理员</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="logout()" style="margin-left:auto;" title="退出登录">↩</button>
+    </div>
+</aside>
 
-    <!-- ── 实时看板 ── -->
-    <div class="tab-content active" id="tab-dashboard">
-        <div class="stats-grid" id="dashboard-stats"></div>
-        <div class="panel">
-            <div class="panel-header"><h3>最近活动</h3></div>
-            <div id="recent-activity" style="padding:16px;font-size:13px;color:var(--muted);">加载中...</div>
+<!-- Main Content -->
+<div class="main">
+    <div class="topbar">
+        <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn-back" onclick="goToSystemSelection()" title="返回系统选择">← 返回</button>
+            <div class="page-title" id="page-title">实时看板</div>
+        </div>
+        <div class="actions">
+            <div class="live-indicator"><span class="pulse"></span><span id="live-time">--</span></div>
         </div>
     </div>
-
-    <!-- ── 无人机管理 ── -->
-    <div class="tab-content" id="tab-drones">
-        <div class="panel">
-            <div class="panel-header">
-                <h3>无人机列表</h3>
-                <button class="btn btn-sm btn-primary" onclick="openDroneModal()">+ 注册无人机</button>
-            </div>
-            <div style="overflow-x:auto">
-                <table>
-                    <thead><tr><th>编号</th><th>名称</th><th>型号</th><th>状态</th><th>电量</th><th>最后位置</th><th>最后上线</th><th>操作</th></tr></thead>
-                    <tbody id="drones-table"></tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- ── 任务管理 ── -->
-    <div class="tab-content" id="tab-tasks">
-        <div class="panel">
-            <div class="panel-header">
-                <h3>巡检任务</h3>
-                <button class="btn btn-sm btn-primary" onclick="openTaskModal()">+ 创建任务</button>
-            </div>
-            <div style="overflow-x:auto">
-                <table>
-                    <thead><tr><th>任务编号</th><th>无人机</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
-                    <tbody id="tasks-table"></tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- ── 巡检记录 ── -->
-    <div class="tab-content" id="tab-records">
-        <div class="panel">
-            <div class="panel-header"><h3>巡检记录</h3></div>
-            <div style="overflow-x:auto">
-                <table>
-                    <thead><tr><th>记录编号</th><th>无人机ID</th><th>状态</th><th>RFID标签</th><th>二维码</th><th>巡检时间</th></tr></thead>
-                    <tbody id="records-table"></tbody>
-                </table>
-            </div>
-        </div>
+    <div class="content" id="content-area">
+        <!-- Pages rendered dynamically -->
     </div>
 </div>
 
-<!-- ── 无人机Modal ── -->
-<div class="modal-overlay" id="drone-modal">
-    <div class="modal">
-        <h3 id="drone-modal-title">注册无人机</h3>
-        <form id="drone-form" onsubmit="saveDrone(event)">
-            <div class="form-group"><label>无人机编号</label><input type="text" id="drone-code" required></div>
-            <div class="form-group"><label>名称</label><input type="text" id="drone-name" required></div>
-            <div class="form-group"><label>型号</label><input type="text" id="drone-model" value="DJI-M300" required></div>
-            <div class="form-group"><label>状态</label>
-                <select id="drone-status" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);">
-                    <option value="offline">离线</option><option value="online">在线</option><option value="flying">飞行中</option><option value="maintenance">维护中</option>
-                </select>
-            </div>
-            <div class="form-group"><label>电量 (%)</label><input type="number" id="drone-battery" value="100" min="0" max="100"></div>
-            <div class="actions">
-                <button type="button" class="btn btn-outline" onclick="closeDroneModal()">取消</button>
-                <button type="submit" class="btn btn-primary">保存</button>
-            </div>
-        </form>
-    </div>
+</div>
 </div>
 
-<!-- ── 任务Modal ── -->
-<div class="modal-overlay" id="task-modal">
-    <div class="modal">
-        <h3>创建巡检任务</h3>
-        <form id="task-form" onsubmit="saveTask(event)">
-            <div class="form-group"><label>任务名称</label><input type="text" id="task-name" required></div>
-            <div class="form-group"><label>无人机</label>
-                <select id="task-drone" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);"></select>
-            </div>
-            <div class="form-group"><label>任务描述</label><input type="text" id="task-desc"></div>
-            <div class="actions">
-                <button type="button" class="btn btn-outline" onclick="closeTaskModal()">取消</button>
-                <button type="submit" class="btn btn-primary">创建</button>
-            </div>
-        </form>
-    </div>
-</div>
+<!-- ═══════════════════ MODALS ═══════════════════ -->
+<div class="modal-overlay" id="modal-drone"><div class="modal"><h3 id="modal-drone-title">注册无人机</h3><form id="form-drone" onsubmit="saveDrone(event)"><input type="hidden" id="fd-id"><div class="field"><label>无人机编号</label><input type="text" id="fd-code" required></div><div class="field"><label>名称</label><input type="text" id="fd-name" required></div><div class="field"><label>型号</label><input type="text" id="fd-model" value="DJI-M300"></div><div class="field"><label>状态</label><select id="fd-status"><option value="offline">离线</option><option value="online">在线</option><option value="flying">飞行中</option><option value="maintenance">维护中</option></select></div><div class="field"><label>电量 (%)</label><input type="number" id="fd-battery" value="100" min="0" max="100"></div><div class="actions"><button type="button" class="btn btn-outline" onclick="closeModal('modal-drone')">取消</button><button type="submit" class="btn btn-primary">保存</button></div></form></div></div>
+
+<div class="modal-overlay" id="modal-task"><div class="modal"><h3>创建巡检任务</h3><form id="form-task" onsubmit="saveTask(event)"><div class="field"><label>任务编号</label><input type="text" id="ft-code" required></div><div class="field"><label>任务名称</label><input type="text" id="ft-name" required></div><div class="field"><label>任务类型</label><select id="ft-type"><option value="routine">常规巡检</option><option value="emergency">紧急巡检</option><option value="custom">自定义</option></select></div><div class="field"><label>指派无人机</label><select id="ft-drone"></select></div><div class="field"><label>飞行高度 (m)</label><input type="number" id="ft-altitude" value="5.0" step="0.1"></div><div class="field"><label>飞行速度 (m/s)</label><input type="number" id="ft-speed" value="2.0" step="0.1"></div><div class="actions"><button type="button" class="btn btn-outline" onclick="closeModal('modal-task')">取消</button><button type="submit" class="btn btn-primary">创建</button></div></form></div></div>
+
+<div class="modal-overlay" id="modal-shelf"><div class="modal"><h3 id="modal-shelf-title">注册货架</h3><form id="form-shelf" onsubmit="saveShelf(event)"><input type="hidden" id="fs-id"><div class="field"><label>货架编号</label><input type="text" id="fs-code" required></div><div class="field"><label>货架名称</label><input type="text" id="fs-name"></div><div class="field"><label>区域</label><input type="text" id="fs-zone"></div><div class="field"><label>位置 X</label><input type="number" id="fs-x" step="0.1"></div><div class="field"><label>位置 Y</label><input type="number" id="fs-y" step="0.1"></div><div class="field"><label>位置 Z</label><input type="number" id="fs-z" step="0.1"></div><div class="actions"><button type="button" class="btn btn-outline" onclick="closeModal('modal-shelf')">取消</button><button type="submit" class="btn btn-primary">保存</button></div></form></div></div>
+
+<div class="modal-overlay" id="modal-image"><div class="modal modal-wide"><h3>图像详情</h3><div id="image-detail-content"></div><div class="actions"><button type="button" class="btn btn-outline" onclick="closeModal('modal-image')">关闭</button></div></div></div>
+
+<div class="toast-container" id="toast-container"></div>
 
 <script>
-// ═══════════════════ 全局配置 ═══════════════════
-const API_BASE = 'http://localhost:8001/api/v1';
-const DB_API = 'http://localhost:8000/api';
-let AUTH_TOKEN = localStorage.getItem('yg_token');
-let AUTH_USER = null;
+// ═══════════════════ CONFIG ═══════════════════
+const API = 'http://localhost:8001/api/v1';
+// 优先从 localStorage 恢复 token，否则用默认账号自动登录
+let TOKEN = localStorage.getItem('yg_token') || '';
+let USER = JSON.parse(localStorage.getItem('yg_user') || 'null') || { username: '', role: '', full_name: '' };
 
-// ═══════════════════ 工具函数 ═══════════════════
+// ═══════════════════ UTILS ═══════════════════
 function toast(msg, type='success') {
-    const t = document.createElement('div');
-    t.className = `toast ${type}`; t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(() => t.remove(), 3000);
+    const c = document.getElementById('toast-container');
+    const el = document.createElement('div');
+    el.className = `toast ${type}`; el.textContent = msg;
+    c.appendChild(el);
+    setTimeout(() => { el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(()=>el.remove(),300); }, 2800);
 }
 
-async function api(url, options={}) {
-    const headers = { 'Content-Type': 'application/json', ...options.headers };
-    if (AUTH_TOKEN) headers['Authorization'] = `Bearer ${AUTH_TOKEN}`;
-    const res = await fetch(url, { ...options, headers });
-    if (res.status === 401) { logout(); throw new Error('未授权'); }
+async function api(url, opts={}) {
+    const h = { 'Content-Type':'application/json', ...opts.headers };
+    if (TOKEN) h['Authorization'] = `Bearer ${TOKEN}`;
+    const res = await fetch(url, { ...opts, headers: h });
+    if (res.status === 401) { throw new Error('请求未授权'); }
     if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(err.detail || err.message || '请求失败');
+        const e = await res.json().catch(()=>({message:res.statusText}));
+        throw new Error(e.message || e.detail || '请求失败');
     }
     return res.json();
 }
 
-function formatTime(ts) {
-    if (!ts) return '-';
-    return new Date(ts).toLocaleString('zh-CN', { hour12: false });
+function fmtTime(ts) { if (!ts) return '-'; return new Date(ts).toLocaleString('zh-CN',{hour12:false}); }
+function fmtShort(ts) { if (!ts) return '-'; return new Date(ts).toLocaleTimeString('zh-CN',{hour12:false}); }
+
+function badge(s, map) {
+    const m = map || { online:'success', flying:'info', offline:'muted', maintenance:'warning',
+        running:'info', finished:'success', cancelled:'muted', created:'warning',
+        completed:'success', pending:'warning', abnormal:'danger', in_progress:'info',
+        processing:'info', processed:'success', failed:'danger',
+        normal:'success', misplaced:'warning', missing:'danger', extra:'danger', duplicate:'warning' };
+    const c = m[s] || 'muted';
+    return `<span class="badge badge-${c}">${s}</span>`;
 }
 
-function statusBadge(status) {
-    const map = {
-        online: 'success', flying: 'info', offline: 'danger', maintenance: 'warning',
-        active: 'success', completed: 'success', pending: 'warning', cancelled: 'danger'
-    };
-    const cls = map[status] || 'info';
-    return `<span class="badge badge-${cls}">${status}</span>`;
-}
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+function openModal(id) { document.getElementById(id).classList.add('show'); }
 
-// ═══════════════════ 登录 ═══════════════════
+// ═══════════════════ LOGIN ═══════════════════
 async function handleLogin(e) {
     e.preventDefault();
-    const btn = document.getElementById('login-btn');
-    const errEl = document.getElementById('login-err');
-    btn.disabled = true; btn.textContent = '登录中...'; errEl.style.display = 'none';
-
+    const btn = document.getElementById('l-btn'), err = document.getElementById('login-err');
+    btn.disabled = true; btn.textContent = '登录中...'; err.style.display = 'none';
     try {
-        const username = document.getElementById('login-username').value;
-        const password = document.getElementById('login-password').value;
-        const res = await fetch(`${API_BASE}/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-        });
+        const u = document.getElementById('l-user').value, p = document.getElementById('l-pass').value;
+        const res = await fetch(`${API}/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:u,password:p}) });
         if (!res.ok) throw new Error('用户名或密码错误');
         const data = await res.json();
-        AUTH_TOKEN = data.data?.access_token || data.access_token;
-        AUTH_USER = data.data?.user || data.user || { username, role: 'admin' };
-        localStorage.setItem('yg_token', AUTH_TOKEN);
-        localStorage.setItem('yg_user', JSON.stringify(AUTH_USER));
+        TOKEN = data.data?.access_token || data.access_token;
+        USER = data.data?.user || data.user || { username: u, role: 'admin', full_name: u };
+        localStorage.setItem('yg_token', TOKEN);
+        localStorage.setItem('yg_user', JSON.stringify(USER));
         showApp();
-    } catch (err) {
-        errEl.textContent = err.message;
-        errEl.style.display = 'block';
-    } finally {
-        btn.disabled = false; btn.textContent = '登 录';
-    }
+    } catch(ex) { err.textContent = ex.message; err.style.display = 'block'; }
+    finally { btn.disabled = false; btn.textContent = '登 录'; }
 }
 
 function logout() {
-    AUTH_TOKEN = null; AUTH_USER = null;
-    localStorage.removeItem('yg_token');
-    localStorage.removeItem('yg_user');
-    document.getElementById('login-screen').style.display = 'flex';
-    document.getElementById('app-screen').style.display = 'none';
-    document.getElementById('login-err').style.display = 'none';
-    document.getElementById('login-password').value = '';
+    goToSystemSelection();
+}
+
+function goToSystemSelection() {
+    // 智能跳转：HTTP服务模式用 /select，本地文件模式用相对路径
+    if (window.location.protocol === 'file:') {
+        window.location.href = '../../index.html';
+    } else {
+        window.location.href = '/select';
+    }
 }
 
 function showApp() {
-    document.getElementById('login-screen').style.display = 'none';
-    document.getElementById('app-screen').style.display = 'block';
-    document.getElementById('user-name').textContent = AUTH_USER?.username || '';
-    document.getElementById('user-role').textContent = AUTH_USER?.role || 'user';
-    switchTab('dashboard');
+    document.getElementById('login-screen').style.display='none';
+    document.getElementById('app-screen').style.display='block';
+    document.getElementById('sb-name').textContent = USER?.full_name || USER?.username || '';
+    document.getElementById('sb-role').textContent = USER?.role || '用户';
+    document.getElementById('sb-avatar').textContent = (USER?.full_name || USER?.username || 'A')[0].toUpperCase();
+    navigate('dashboard');
+    setInterval(() => { document.getElementById('live-time').textContent = new Date().toLocaleTimeString('zh-CN',{hour12:false}); }, 1000);
+    // Auto-refresh dashboard
+    setInterval(() => { if (currentPage === 'dashboard') loadDashboard(); }, 15000);
 }
 
-// ═══════════════════ Tab切换 ═══════════════════
-function switchTab(name) {
-    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.tab-nav button').forEach(el => el.classList.remove('active'));
-    const tab = document.getElementById('tab-' + name);
-    if (tab) tab.classList.add('active');
-    const btns = document.querySelectorAll('.tab-nav button');
-    const target = [...btns].find(b => b.textContent.includes(getTabLabel(name)));
-    if (target) target.classList.add('active');
+// ═══════════════════ NAVIGATION ═══════════════════
+let currentPage = '';
+const pageTitles = {
+    dashboard:'实时看板', drones:'无人机管理', tasks:'巡检任务', records:'巡检记录',
+    shelves:'货架管理', skus:'SKU管理', images:'图像管理', videos:'视频管理',
+    gateway:'数据网关', system:'系统状态', rfid_settings:'RFID设置'
+};
 
-    if (name === 'dashboard') loadDashboard();
-    else if (name === 'drones') loadDrones();
-    else if (name === 'tasks') loadTasks();
-    else if (name === 'records') loadRecords();
+function navigate(name) {
+    currentPage = name;
+    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+    const nav = document.querySelector(`.nav-item[data-page="${name}"]`);
+    if (nav) nav.classList.add('active');
+    document.getElementById('page-title').textContent = pageTitles[name] || name;
+    const content = document.getElementById('content-area');
+    if (window[`render_${name}`]) { window[`render_${name}`](content); }
+    else { content.innerHTML = `<div class="panel"><div class="empty-row"><td>页面开发中...</td></div></div>`; }
 }
 
-function getTabLabel(name) {
-    const map = { dashboard: '看板', drones: '无人机', tasks: '任务', records: '记录' };
-    return map[name] || name;
+document.getElementById('sidebar-nav').addEventListener('click', e => {
+    const item = e.target.closest('.nav-item');
+    if (item) navigate(item.dataset.page);
+});
+
+// ═══════════════════ PAGE: DASHBOARD ═══════════════════
+async function render_dashboard(el) {
+    el.innerHTML = `
+        <div class="stat-row" id="dash-stats"><div class="stat-item"><div class="stat-label">加载中...</div></div></div>
+        <div class="col2">
+            <div class="panel"><div class="panel-header"><span>任务进度</span></div><div id="dash-tasks" style="padding:12px;font-size:13px;color:var(--muted);">加载中...</div></div>
+            <div class="panel"><div class="panel-header"><span>实时数据流</span></div><div class="live-feed" id="dash-live" style="font-size:13px;color:var(--muted);">加载中...</div></div>
+        </div>`;
+    await loadDashboard();
 }
 
-// ═══════════════════ 实时看板 ═══════════════════
 async function loadDashboard() {
     try {
-        const [drones, tasks, records] = await Promise.allSettled([
-            api(`${API_BASE}/drones/`).catch(() => []),
-            api(`${API_BASE}/tasks/`).catch(() => []),
-            api(`${API_BASE}/inspection/records/`).catch(() => [])
+        const [ov, tasks, live] = await Promise.allSettled([
+            api(`${API}/dashboard/overview`).catch(()=>null),
+            api(`${API}/dashboard/tasks`).catch(()=>null),
+            api(`${API}/dashboard/live`).catch(()=>null)
         ]);
-        const d = drones.value || [];
-        const t = tasks.value || [];
-        const r = records.value || [];
-        const online = d.filter(dr => dr.status === 'online' || dr.status === 'flying').length;
+        const o = ov.value?.data || {};
+        const td = o.drones||{}, tk = o.tasks||{}, today = o.today||{}, inv = o.inventory||{};
+        document.getElementById('dash-stats').innerHTML = `
+            <div class="stat-item"><div class="stat-label">无人机</div><div class="stat-value c-blue">${td.total||0}</div><div class="stat-sub">在线 ${td.online||0}</div></div>
+            <div class="stat-item"><div class="stat-label">活跃任务</div><div class="stat-value c-green">${tk.active||0}</div><div class="stat-sub">总计 ${tk.total||0}</div></div>
+            <div class="stat-item"><div class="stat-label">今日图像</div><div class="stat-value c-yellow">${today.images||0}</div><div class="stat-sub">识别率 ${today.recognition_rate||0}%</div></div>
+            <div class="stat-item"><div class="stat-label">库存异常</div><div class="stat-value c-red">${inv.abnormal_items||0}</div><div class="stat-sub">需关注</div></div>
+            <div class="stat-item"><div class="stat-label">今日识别</div><div class="stat-value c-blue">${today.recognized||0}</div><div class="stat-sub">库存条目 ${today.items||0}</div></div>`;
 
-        document.getElementById('dashboard-stats').innerHTML = `
-            <div class="stat-card"><div class="label">无人机总数</div><div class="value blue">${d.length}</div></div>
-            <div class="stat-card"><div class="label">在线无人机</div><div class="value green">${online}</div></div>
-            <div class="stat-card"><div class="label">巡检任务</div><div class="value yellow">${t.length}</div></div>
-            <div class="stat-card"><div class="label">巡检记录</div><div class="value">${r.length}</div></div>
-        `;
-        document.getElementById('recent-activity').innerHTML = r.length > 0
-            ? r.slice(0, 5).map(rec => `<div style="padding:6px 0;border-bottom:1px solid var(--border)">[${rec.record_code || 'N/A'}] 状态: ${statusBadge(rec.status)} - ${formatTime(rec.inspection_time)}</div>`).join('')
-            : '<div class="empty-state">暂无巡检记录</div>';
-    } catch (e) {
-        document.getElementById('dashboard-stats').innerHTML = '<div class="stat-card"><div class="label">错误</div><div class="value red">!</div></div>';
-    }
+        const tItems = tasks.value?.data?.items || [];
+        document.getElementById('dash-tasks').innerHTML = tItems.length ? tItems.map(t => `
+            <div style="padding:8px 0;border-bottom:1px solid var(--border2);">
+                <div style="display:flex;justify-content:space-between;">
+                    <span style="font-weight:500;">${t.task_name}</span>
+                    <span class="mono" style="font-size:10px;">${t.drone_name||'未分配'}</span>
+                </div>
+                <div class="progress-bar"><div class="fill" style="width:${t.progress_percent||0}%"></div></div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px;">${badge(t.status)} 航点 ${t.waypoints?.scanned||0}/${t.waypoints?.total||0}</div>
+            </div>`).join('') : '<div style="padding:12px;text-align:center;color:var(--muted);">暂无运行中的任务</div>';
+
+        const liveItems = live.value?.data?.recent_recognitions || [];
+        document.getElementById('dash-live').innerHTML = liveItems.length ? liveItems.map(r => `
+            <div class="item"><span class="time">${fmtShort(r.created_at)}</span><span>${r.qr_data||'识别中...'}</span>${badge(r.inventory_status||r.status)}</div>`).join('') : '<div style="padding:12px;text-align:center;color:var(--muted);">暂无实时数据</div>';
+    } catch(e) { /* silent */ }
 }
 
-// ═══════════════════ 无人机管理 ═══════════════════
+// ═══════════════════ PAGE: DRONES ═══════════════════
+async function render_drones(el) {
+    el.innerHTML = `
+        <div class="panel"><div class="panel-header"><span>无人机列表</span> <span class="count" id="drone-count"></span><button class="btn btn-primary btn-sm" onclick="openDroneModal()">+ 注册</button></div>
+        <div style="overflow-x:auto"><table><thead><tr><th>编号</th><th>名称</th><th>型号</th><th>状态</th><th>电量</th><th>最后位置</th><th>最后上线</th><th>操作</th></tr></thead><tbody id="drone-tbody"></tbody></table></div></div>`;
+    await loadDrones();
+}
+
 async function loadDrones() {
     try {
-        const drones = await api(`${API_BASE}/drones/`).catch(() => []);
-        const tbody = document.getElementById('drones-table');
-        if (!drones.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无无人机，请点击"注册无人机"</td></tr>';
-            return;
-        }
-        tbody.innerHTML = drones.map(d => `
+        const data = await api(`${API}/drones/`);
+        const drones = Array.isArray(data) ? data : (data.data||data.items||[]);
+        document.getElementById('drone-count').textContent = `${drones.length} 台`;
+        document.getElementById('drone-tbody').innerHTML = drones.length ? drones.map(d => `
             <tr>
-                <td>${d.drone_code}</td>
-                <td>${d.drone_name}</td>
-                <td>${d.model || '-'}</td>
-                <td>${statusBadge(d.status)}</td>
-                <td>${d.battery_level != null ? d.battery_level + '%' : '-'}</td>
-                <td>${d.last_position_x != null ? `(${d.last_position_x?.toFixed(1)}, ${d.last_position_y?.toFixed(1)}, ${d.last_position_z?.toFixed(1)})` : '-'}</td>
-                <td>${formatTime(d.last_seen)}</td>
-                <td>
-                    <button class="btn btn-sm btn-outline" onclick="editDrone(${d.id})">编辑</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteDrone(${d.id})">删除</button>
-                </td>
-            </tr>
-        `).join('');
-    } catch (e) {
-        document.getElementById('drones-table').innerHTML = `<tr><td colspan="8" class="empty-state">加载失败: ${e.message}</td></tr>`;
-    }
+                <td class="mono">${d.drone_code}</td><td>${d.drone_name||'-'}</td><td>${d.model||'-'}</td>
+                <td>${badge(d.status)}</td><td>${d.battery_level!=null?d.battery_level+'%':'-'}</td>
+                <td class="mono" style="font-size:11px;">${d.last_position_x!=null?`(${d.last_position_x?.toFixed(1)},${d.last_position_y?.toFixed(1)},${d.last_position_z?.toFixed(1)})`:'-'}</td>
+                <td>${fmtTime(d.last_seen)}</td>
+                <td><div class="row-actions"><button class="btn btn-outline btn-sm" onclick="editDrone(${d.id})">编辑</button><button class="btn btn-danger btn-sm" onclick="deleteDrone(${d.id})">删除</button></div></td>
+            </tr>`).join('') : '<tr class="empty-row"><td colspan="8">暂无无人机，请点击"注册"</td></tr>';
+    } catch(e) { document.getElementById('drone-tbody').innerHTML = `<tr class="empty-row"><td colspan="8">加载失败: ${e.message}</td></tr>`; }
 }
 
-function openDroneModal(drone) {
-    document.getElementById('drone-modal').classList.add('show');
-    document.getElementById('drone-modal-title').textContent = drone ? '编辑无人机' : '注册无人机';
-    document.getElementById('drone-code').value = drone?.drone_code || '';
-    document.getElementById('drone-name').value = drone?.drone_name || '';
-    document.getElementById('drone-model').value = drone?.model || 'DJI-M300';
-    document.getElementById('drone-status').value = drone?.status || 'offline';
-    document.getElementById('drone-battery').value = drone?.battery_level ?? 100;
-    document.getElementById('drone-form').dataset.editId = drone?.id || '';
-}
-
-function closeDroneModal() {
-    document.getElementById('drone-modal').classList.remove('show');
+function openDroneModal(d) {
+    document.getElementById('modal-drone-title').textContent = d ? '编辑无人机' : '注册无人机';
+    document.getElementById('fd-id').value = d?.id || '';
+    document.getElementById('fd-code').value = d?.drone_code || '';
+    document.getElementById('fd-name').value = d?.drone_name || '';
+    document.getElementById('fd-model').value = d?.model || 'DJI-M300';
+    document.getElementById('fd-status').value = d?.status || 'offline';
+    document.getElementById('fd-battery').value = d?.battery_level ?? 100;
+    openModal('modal-drone');
 }
 
 async function saveDrone(e) {
     e.preventDefault();
-    const editId = document.getElementById('drone-form').dataset.editId;
+    const id = document.getElementById('fd-id').value;
     const body = {
-        drone_code: document.getElementById('drone-code').value,
-        drone_name: document.getElementById('drone-name').value,
-        model: document.getElementById('drone-model').value,
-        status: document.getElementById('drone-status').value,
-        battery_level: parseFloat(document.getElementById('drone-battery').value) || 100,
+        drone_code: document.getElementById('fd-code').value,
+        drone_name: document.getElementById('fd-name').value,
+        model: document.getElementById('fd-model').value,
+        status: document.getElementById('fd-status').value,
+        battery_level: parseFloat(document.getElementById('fd-battery').value)||100,
     };
     try {
-        const url = editId ? `${API_BASE}/drones/${editId}` : `${API_BASE}/drones/`;
-        const method = editId ? 'PATCH' : 'POST';
-        await api(url, { method, body: JSON.stringify(body) });
-        closeDroneModal();
-        toast(editId ? '更新成功' : '注册成功');
-        loadDrones();
-    } catch (err) { toast(err.message, 'error'); }
+        await api(id ? `${API}/drones/${id}` : `${API}/drones/`, { method: id?'PATCH':'POST', body:JSON.stringify(body) });
+        closeModal('modal-drone'); toast(id?'更新成功':'注册成功'); loadDrones();
+    } catch(ex) { toast(ex.message,'error'); }
 }
 
-async function editDrone(id) {
-    try {
-        const drone = await api(`${API_BASE}/drones/${id}`);
-        openDroneModal(drone);
-    } catch (err) { toast(err.message, 'error'); }
+async function editDrone(id) { try { const d = await api(`${API}/drones/${id}`); openDroneModal(d); } catch(ex) { toast(ex.message,'error'); } }
+async function deleteDrone(id) { if (!confirm('确认删除该无人机？')) return; try { await api(`${API}/drones/${id}`,{method:'DELETE'}); toast('删除成功'); loadDrones(); } catch(ex) { toast(ex.message,'error'); } }
+
+// ═══════════════════ PAGE: TASKS ═══════════════════
+async function render_tasks(el) {
+    el.innerHTML = `
+        <div class="panel"><div class="panel-header"><span>巡检任务列表</span> <span class="count" id="task-count"></span><button class="btn btn-primary btn-sm" onclick="openTaskModal()">+ 创建</button></div>
+        <div style="overflow-x:auto"><table><thead><tr><th>任务编号</th><th>名称</th><th>类型</th><th>无人机</th><th>状态</th><th>航点</th><th>图像</th><th>创建时间</th><th>操作</th></tr></thead><tbody id="task-tbody"></tbody></table></div></div>`;
+    await loadTasks();
 }
 
-async function deleteDrone(id) {
-    if (!confirm('确认删除该无人机？')) return;
-    try {
-        await api(`${API_BASE}/drones/${id}`, { method: 'DELETE' });
-        toast('删除成功');
-        loadDrones();
-    } catch (err) { toast(err.message, 'error'); }
-}
-
-// ═══════════════════ 任务管理 ═══════════════════
 async function loadTasks() {
     try {
-        const tasks = await api(`${API_BASE}/tasks/`).catch(() => []);
-        const tbody = document.getElementById('tasks-table');
-        if (!tasks.length) {
-            tbody.innerHTML = '<tr><td colspan="5" class="empty-state">暂无任务，请点击"创建任务"</td></tr>';
-            return;
-        }
-        tbody.innerHTML = tasks.map(t => `
+        const data = await api(`${API}/inspection/tasks`);
+        const tasks = data?.data?.items || data?.items || [];
+        document.getElementById('task-count').textContent = `${data?.data?.total||tasks.length} 个`;
+        document.getElementById('task-tbody').innerHTML = tasks.length ? tasks.map(t => `
             <tr>
-                <td>${t.task_code || t.id}</td>
-                <td>${t.drone_id || '-'}</td>
-                <td>${statusBadge(t.status)}</td>
-                <td>${formatTime(t.created_at)}</td>
-                <td>
-                    <button class="btn btn-sm btn-outline" onclick="viewTask(${t.id})">查看</button>
-                </td>
-            </tr>
-        `).join('');
-    } catch (e) {
-        document.getElementById('tasks-table').innerHTML = `<tr><td colspan="5" class="empty-state">加载失败: ${e.message}</td></tr>`;
-    }
+                <td class="mono">${t.task_code}</td><td>${t.task_name}</td><td>${t.task_type||'-'}</td>
+                <td>${t.drone_code||'未分配'}</td><td>${badge(t.status)}</td>
+                <td>${t.scanned_waypoints||0}/${t.total_waypoints||0}</td>
+                <td>${t.total_images||0}</td>
+                <td>${fmtTime(t.created_at)}</td>
+                <td><div class="row-actions"><button class="btn btn-outline btn-sm" onclick="viewTaskDetail('${t.task_code}')">详情</button></div></td>
+            </tr>`).join('') : '<tr class="empty-row"><td colspan="9">暂无任务</td></tr>';
+    } catch(e) { document.getElementById('task-tbody').innerHTML = `<tr class="empty-row"><td colspan="9">加载失败: ${e.message}</td></tr>`; }
 }
 
 async function openTaskModal() {
-    document.getElementById('task-modal').classList.add('show');
+    document.getElementById('form-task').reset();
     try {
-        const drones = await api(`${API_BASE}/drones/`).catch(() => []);
-        const sel = document.getElementById('task-drone');
-        sel.innerHTML = drones.map(d => `<option value="${d.id}">${d.drone_code} - ${d.drone_name}</option>`).join('');
-    } catch (e) {}
-}
-
-function closeTaskModal() {
-    document.getElementById('task-modal').classList.remove('show');
+        const drones = await api(`${API}/drones/`);
+        const list = Array.isArray(drones) ? drones : (drones.data||[]);
+        document.getElementById('ft-drone').innerHTML = '<option value="">不分配</option>' + list.map(d => `<option value="${d.id}">${d.drone_code} - ${d.drone_name}</option>`).join('');
+    } catch(e) {}
+    openModal('modal-task');
 }
 
 async function saveTask(e) {
     e.preventDefault();
     const body = {
-        task_name: document.getElementById('task-name').value,
-        drone_id: parseInt(document.getElementById('task-drone').value),
-        description: document.getElementById('task-desc').value,
+        task_code: document.getElementById('ft-code').value,
+        task_name: document.getElementById('ft-name').value,
+        task_type: document.getElementById('ft-type').value,
+        drone_id: parseInt(document.getElementById('ft-drone').value) || null,
+        altitude: parseFloat(document.getElementById('ft-altitude').value)||5.0,
+        speed: parseFloat(document.getElementById('ft-speed').value)||2.0,
     };
     try {
-        await api(`${API_BASE}/tasks/`, { method: 'POST', body: JSON.stringify(body) });
-        closeTaskModal();
-        toast('任务创建成功');
-        loadTasks();
-    } catch (err) { toast(err.message, 'error'); }
+        await api(`${API}/inspection/tasks`, { method:'POST', body:JSON.stringify(body) });
+        closeModal('modal-task'); toast('任务创建成功'); loadTasks();
+    } catch(ex) { toast(ex.message,'error'); }
 }
 
-async function viewTask(id) {
+async function viewTaskDetail(code) {
     try {
-        const task = await api(`${API_BASE}/tasks/${id}`);
-        toast(`任务: ${task.task_code || task.id} - ${task.status}`, 'success');
-    } catch (err) { toast(err.message, 'error'); }
+        const data = await api(`${API}/inspection/tasks/${code}`);
+        const t = data?.data || data;
+        const html = `
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px;">
+                <div><strong>任务编号:</strong> ${t.task_code}</div><div><strong>状态:</strong> ${badge(t.status)}</div>
+                <div><strong>名称:</strong> ${t.task_name}</div><div><strong>无人机:</strong> ${t.drone_code||'未分配'}</div>
+                <div><strong>航点:</strong> ${t.scanned_waypoints||0}/${t.total_waypoints||0}</div><div><strong>图像:</strong> ${t.total_images||0} (识别${t.total_recognized||0})</div>
+                <div><strong>开始:</strong> ${fmtTime(t.start_time)}</div><div><strong>结束:</strong> ${fmtTime(t.end_time)}</div>
+                <div><strong>识别失败:</strong> ${t.total_failed||0}</div><div><strong>准确率:</strong> ${t.accuracy||'-'}</div>
+            </div>`;
+        document.getElementById('image-detail-content').innerHTML = html;
+        openModal('modal-image');
+    } catch(ex) { toast(ex.message,'error'); }
 }
 
-// ═══════════════════ 巡检记录 ═══════════════════
+// ═══════════════════ PAGE: RECORDS ═══════════════════
+async function render_records(el) {
+    el.innerHTML = `
+        <div class="panel"><div class="panel-header"><span>巡检记录</span> <span class="count" id="record-count"></span></div>
+        <div style="overflow-x:auto"><table><thead><tr><th>记录编号</th><th>无人机</th><th>货架</th><th>状态</th><th>RFID</th><th>二维码</th><th>匹配</th><th>巡检时间</th></tr></thead><tbody id="record-tbody"></tbody></table></div></div>`;
+    await loadRecords();
+}
+
 async function loadRecords() {
     try {
-        const records = await api(`${API_BASE}/inspection/records/`).catch(() => []);
-        const tbody = document.getElementById('records-table');
-        if (!records.length) {
-            tbody.innerHTML = '<tr><td colspan="6" class="empty-state">暂无巡检记录</td></tr>';
-            return;
-        }
-        tbody.innerHTML = records.map(r => `
+        const data = await api(`${API}/inspection/records`);
+        const records = data?.items || data?.data?.items || [];
+        document.getElementById('record-count').textContent = `${data?.total||data?.data?.total||records.length} 条`;
+        document.getElementById('record-tbody').innerHTML = records.length ? records.map(r => `
             <tr>
-                <td>${r.record_code || r.id}</td>
-                <td>${r.drone_id || '-'}</td>
-                <td>${statusBadge(r.status)}</td>
-                <td>${r.detected_rfid_tags || r.rfid_data || '-'}</td>
-                <td>${r.detected_qr_codes || r.qr_code_data || '-'}</td>
-                <td>${formatTime(r.inspection_time)}</td>
-            </tr>
-        `).join('');
-    } catch (e) {
-        document.getElementById('records-table').innerHTML = `<tr><td colspan="6" class="empty-state">加载失败: ${e.message}</td></tr>`;
-    }
+                <td class="mono">${r.record_code}</td><td>${r.drone_id||'-'}</td><td>${r.shelf_id||'-'}</td>
+                <td>${badge(r.status)}</td>
+                <td class="truncate mono">${r.detected_rfid_tags||r.rfid_data||'-'}</td>
+                <td class="truncate mono">${r.detected_qr_codes||r.qr_code_data||'-'}</td>
+                <td>${r.is_matched===true?'✅':r.is_matched===false?'❌':'-'}</td>
+                <td>${fmtTime(r.inspection_time)}</td>
+            </tr>`).join('') : '<tr class="empty-row"><td colspan="8">暂无巡检记录</td></tr>';
+    } catch(e) { document.getElementById('record-tbody').innerHTML = `<tr class="empty-row"><td colspan="8">加载失败: ${e.message}</td></tr>`; }
 }
 
-// ═══════════════════ 初始化 ═══════════════════
-(function init() {
-    if (AUTH_TOKEN) {
-        try {
-            AUTH_USER = JSON.parse(localStorage.getItem('yg_user'));
+// ═══════════════════ PAGE: SHELVES ═══════════════════
+async function render_shelves(el) {
+    el.innerHTML = `
+        <div class="panel"><div class="panel-header"><span>货架列表</span> <span class="count" id="shelf-count"></span><button class="btn btn-primary btn-sm" onclick="openShelfModal()">+ 注册</button></div>
+        <div style="overflow-x:auto"><table><thead><tr><th>编号</th><th>名称</th><th>区域</th><th>位置</th><th>状态</th><th>操作</th></tr></thead><tbody id="shelf-tbody"></tbody></table></div></div>`;
+    await loadShelves();
+}
+
+async function loadShelves() {
+    try {
+        const data = await api(`${API}/shelves/`);
+        const shelves = Array.isArray(data) ? data : (data.data||data.items||[]);
+        document.getElementById('shelf-count').textContent = `${shelves.length} 个`;
+        document.getElementById('shelf-tbody').innerHTML = shelves.length ? shelves.map(s => `
+            <tr>
+                <td class="mono">${s.shelf_code}</td><td>${s.shelf_name||'-'}</td><td>${s.zone||'-'}</td>
+                <td class="mono" style="font-size:11px;">(${s.position_x||0},${s.position_y||0},${s.position_z||0})</td>
+                <td>${badge(s.status)}</td>
+                <td><div class="row-actions"><button class="btn btn-outline btn-sm" onclick="editShelf(${s.id})">编辑</button><button class="btn btn-danger btn-sm" onclick="deleteShelf(${s.id})">删除</button></div></td>
+            </tr>`).join('') : '<tr class="empty-row"><td colspan="6">暂无货架，请点击"注册"</td></tr>';
+    } catch(e) { document.getElementById('shelf-tbody').innerHTML = `<tr class="empty-row"><td colspan="6">加载失败: ${e.message}</td></tr>`; }
+}
+
+function openShelfModal(s) {
+    document.getElementById('modal-shelf-title').textContent = s ? '编辑货架' : '注册货架';
+    document.getElementById('fs-id').value = s?.id || '';
+    document.getElementById('fs-code').value = s?.shelf_code || '';
+    document.getElementById('fs-name').value = s?.shelf_name || '';
+    document.getElementById('fs-zone').value = s?.zone || '';
+    document.getElementById('fs-x').value = s?.position_x || '';
+    document.getElementById('fs-y').value = s?.position_y || '';
+    document.getElementById('fs-z').value = s?.position_z || '';
+    openModal('modal-shelf');
+}
+
+async function saveShelf(e) {
+    e.preventDefault();
+    const id = document.getElementById('fs-id').value;
+    const body = {
+        shelf_code: document.getElementById('fs-code').value,
+        shelf_name: document.getElementById('fs-name').value,
+        zone: document.getElementById('fs-zone').value,
+        position_x: parseFloat(document.getElementById('fs-x').value)||null,
+        position_y: parseFloat(document.getElementById('fs-y').value)||null,
+        position_z: parseFloat(document.getElementById('fs-z').value)||null,
+    };
+    try {
+        await api(id ? `${API}/shelves/${id}` : `${API}/shelves/`, { method: id?'PATCH':'POST', body:JSON.stringify(body) });
+        closeModal('modal-shelf'); toast(id?'更新成功':'注册成功'); loadShelves();
+    } catch(ex) { toast(ex.message,'error'); }
+}
+
+async function editShelf(id) { try { const s = await api(`${API}/shelves/${id}`); openShelfModal(s); } catch(ex) { toast(ex.message,'error'); } }
+async function deleteShelf(id) { if (!confirm('确认删除该货架？')) return; try { await api(`${API}/shelves/${id}`,{method:'DELETE'}); toast('删除成功'); loadShelves(); } catch(ex) { toast(ex.message,'error'); } }
+
+// ═══════════════════ PAGE: SKUS ═══════════════════
+async function render_skus(el) {
+    el.innerHTML = `
+        <div class="panel"><div class="panel-header"><span>SKU 列表</span><span class="count" id="sku-count"></span></div>
+        <div style="overflow-x:auto"><table><thead><tr><th>SKU</th><th>预期位置</th><th>库存数量</th><th>操作</th></tr></thead><tbody id="sku-tbody"></tbody></table></div></div>`;
+    await loadSKUs();
+}
+
+async function loadSKUs() {
+    try {
+        const data = await api(`${API}/skus/`);
+        const skus = data?.data?.items || [];
+        document.getElementById('sku-count').textContent = `${data?.data?.total||skus.length} 个`;
+        document.getElementById('sku-tbody').innerHTML = skus.length ? skus.map(s => `
+            <tr>
+                <td class="mono">${s.sku}</td><td>${s.expected_location||'-'}</td><td>${s.total_count}</td>
+                <td><button class="btn btn-outline btn-sm" onclick="viewSKUDetail('${s.sku}')">详情</button></td>
+            </tr>`).join('') : '<tr class="empty-row"><td colspan="4">暂无SKU数据（需先执行巡检任务）</td></tr>';
+    } catch(e) { document.getElementById('sku-tbody').innerHTML = `<tr class="empty-row"><td colspan="4">加载失败: ${e.message}</td></tr>`; }
+}
+
+async function viewSKUDetail(sku) {
+    try {
+        const data = await api(`${API}/skus/${sku}`);
+        const d = data?.data || {};
+        const records = d.records || [];
+        const html = `
+            <div style="font-size:13px;margin-bottom:12px;"><strong>SKU:</strong> <span class="mono">${d.sku}</span> | <strong>位置:</strong> ${d.expected_location||'-'} | <strong>数量:</strong> ${d.total_count}</div>
+            ${records.length ? `<table><thead><tr><th>ID</th><th>状态</th><th>位置</th><th>置信度</th><th>时间</th></tr></thead><tbody>${records.map(r=>`<tr><td class="mono" style="font-size:11px;">${r.id}</td><td>${badge(r.status)}</td><td class="mono" style="font-size:10px;">(${r.position?.x?.toFixed(1)||'-'},${r.position?.y?.toFixed(1)||'-'},${r.position?.z?.toFixed(1)||'-'})</td><td>${r.confidence? (r.confidence*100).toFixed(0)+'%':'-'}</td><td>${fmtTime(r.created_at)}</td></tr>`).join('')}</tbody></table>` : '<div style="text-align:center;color:var(--muted);padding:16px;">暂无记录</div>'}`;
+        document.getElementById('image-detail-content').innerHTML = html;
+        openModal('modal-image');
+    } catch(ex) { toast(ex.message,'error'); }
+}
+
+// ═══════════════════ PAGE: IMAGES ═══════════════════
+async function render_images(el) {
+    el.innerHTML = `
+        <div class="panel"><div class="panel-header"><span>图像列表</span> <span class="count" id="img-count"></span></div>
+        <div class="img-grid" id="img-grid" style="padding:12px;"><div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:24px;">加载中...</div></div></div>
+        <div class="panel" style="margin-top:16px;"><div class="panel-header"><span>上传图像</span></div>
+        <div style="padding:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+            <div class="field" style="flex:1;min-width:140px;"><label>无人机编号</label><input type="text" id="img-upload-drone" value="DRONE001"></div>
+            <div class="field" style="flex:1;min-width:140px;"><label>任务编号</label><input type="text" id="img-upload-task" value="TASK001"></div>
+            <div class="field" style="flex:1;min-width:140px;"><label>选择文件</label><input type="file" id="img-upload-file" accept="image/*" style="padding:8px;"></div>
+            <button class="btn btn-primary btn-sm" onclick="uploadImage()" style="margin-bottom:16px;">上传</button>
+        </div></div>`;
+    await loadImages();
+}
+
+async function loadImages() {
+    try {
+        // Try to get images from latest task
+        const tasks = await api(`${API}/inspection/tasks`).catch(()=>({data:{items:[]}}));
+        const taskItems = tasks?.data?.items || [];
+        let allImages = [];
+        for (const t of taskItems.slice(0,3)) {
+            try {
+                const imgs = await api(`${API}/images/task/${t.task_code}`);
+                if (imgs?.data?.items) allImages = allImages.concat(imgs.data.items.map(i=>({...i, task_code:t.task_code})));
+            } catch(e) {}
+        }
+        document.getElementById('img-count').textContent = `${allImages.length} 张`;
+        document.getElementById('img-grid').innerHTML = allImages.length ? allImages.map(img => `
+            <div class="img-card" onclick="viewImageDetail('${img.image_id}')">
+                <img class="thumb" src="${API}/images/${img.image_id}/file" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22140%22><rect fill=%22%231a2332%22 width=%22200%22 height=%22140%22/><text fill=%22%235f7d94%22 x=%22100%22 y=%2275%22 text-anchor=%22middle%22 font-size=%2212%22>无预览</text></svg>'">
+                <div class="meta"><div class="status-row">${badge(img.status)} ${badge(img.inventory_status||'normal')}</div><div class="sku">${img.qr_data||'未识别'}</div></div>
+            </div>`).join('') : '<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:24px;">暂无图像（执行巡检任务后上传）</div>';
+    } catch(e) { document.getElementById('img-grid').innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:24px;">加载失败: ${e.message}</div>`; }
+}
+
+async function viewImageDetail(id) {
+    try {
+        const img = await api(`${API}/images/${id}`);
+        const d = img?.data || img;
+        document.getElementById('image-detail-content').innerHTML = `
+            <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                <img src="${API}/images/${id}/file" style="max-width:300px;max-height:260px;border-radius:var(--radius);" onerror="this.style.display='none'">
+                <div style="flex:1;min-width:200px;font-size:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px;align-content:start;">
+                    <div><strong>ID:</strong> <span class="mono">${d.image_id}</span></div><div><strong>状态:</strong> ${badge(d.recognition_status||d.status)}</div>
+                    <div><strong>图像质量:</strong> ${d.image_quality?.toFixed(1)||'-'}</div><div><strong>置信度:</strong> ${d.confidence? (d.confidence*100).toFixed(0)+'%':'-'}</div>
+                    <div><strong>QR数据:</strong> <span class="mono">${d.qr_data||'-'}</span></div><div><strong>库存状态:</strong> ${badge(d.inventory_status||'normal')}</div>
+                    <div><strong>预期SKU:</strong> ${d.expected_sku||'-'}</div><div><strong>解码器:</strong> ${d.decoder_used||'-'}</div>
+                    <div><strong>消息:</strong> ${d.inventory_message||'-'}</div><div><strong>时间:</strong> ${fmtTime(d.created_at)}</div>
+                </div>
+            </div>`;
+        openModal('modal-image');
+    } catch(ex) { toast(ex.message,'error'); }
+}
+
+async function uploadImage() {
+    const file = document.getElementById('img-upload-file').files[0];
+    if (!file) { toast('请选择文件', 'error'); return; }
+    const form = new FormData();
+    form.append('image', file);
+    form.append('drone_code', document.getElementById('img-upload-drone').value);
+    form.append('task_code', document.getElementById('img-upload-task').value);
+    try {
+        const res = await fetch(`${API}/images/upload`, { method:'POST', headers:{}, body:form });
+        if (!res.ok) { const e = await res.json().catch(()=>({message:res.statusText})); throw new Error(e.message||e.detail||'上传失败'); }
+        toast('图像上传成功'); loadImages();
+    } catch(ex) { toast(ex.message,'error'); }
+}
+
+// ═══════════════════ PAGE: VIDEOS ═══════════════════
+async function render_videos(el) {
+    el.innerHTML = `
+        <div class="panel"><div class="panel-header"><span>视频列表</span> <span class="count" id="vid-count"></span></div>
+        <div class="img-grid" id="vid-grid" style="padding:12px;"><div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:24px;">加载中...</div></div></div>
+        <div class="panel" style="margin-top:16px;"><div class="panel-header"><span>上传视频</span></div>
+        <div style="padding:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+            <div class="field" style="flex:1;min-width:140px;"><label>无人机编号</label><input type="text" id="vid-upload-drone" value="DRONE001"></div>
+            <div class="field" style="flex:1;min-width:140px;"><label>任务编号</label><input type="text" id="vid-upload-task" value="TASK001"></div>
+            <div class="field" style="flex:1;min-width:140px;"><label>选择文件</label><input type="file" id="vid-upload-file" accept="video/*" style="padding:8px;"></div>
+            <button class="btn btn-primary btn-sm" onclick="uploadVideo()" style="margin-bottom:16px;">上传</button>
+        </div></div>`;
+    await loadVideos();
+}
+
+async function loadVideos() {
+    try {
+        const tasks = await api(`${API}/inspection/tasks`).catch(()=>({data:{items:[]}}));
+        const taskItems = tasks?.data?.items || [];
+        let allVideos = [];
+        for (const t of taskItems.slice(0,3)) {
+            try {
+                const vids = await api(`${API}/videos/task/${t.task_code}`);
+                if (vids?.data?.items) allVideos = allVideos.concat(vids.data.items.map(i=>({...i, task_code:t.task_code})));
+            } catch(e) {}
+        }
+        document.getElementById('vid-count').textContent = `${allVideos.length} 个`;
+        document.getElementById('vid-grid').innerHTML = allVideos.length ? allVideos.map(v => `
+            <div class="img-card" style="cursor:default;">
+                <div style="height:140px;display:flex;align-items:center;justify-content:center;background:var(--bg);font-size:32px;">▶</div>
+                <div class="meta"><div class="status-row"><span>${v.file_name}</span></div><div style="font-size:10px;color:var(--muted);">${(v.file_size/1024/1024).toFixed(1)}MB</div>
+                <div style="display:flex;gap:4px;margin-top:4px;"><a href="${API}/videos/${v.video_id}/file" target="_blank" class="btn btn-outline btn-sm" style="flex:1;text-align:center;">下载</a><button class="btn btn-danger btn-sm" onclick="deleteVideo('${v.video_id}')">删除</button></div></div>
+            </div>`).join('') : '<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:24px;">暂无视频（执行巡检任务后上传）</div>';
+    } catch(e) { document.getElementById('vid-grid').innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:24px;">加载失败: ${e.message}</div>`; }
+}
+
+async function uploadVideo() {
+    const file = document.getElementById('vid-upload-file').files[0];
+    if (!file) { toast('请选择文件', 'error'); return; }
+    const form = new FormData();
+    form.append('video', file);
+    form.append('drone_code', document.getElementById('vid-upload-drone').value);
+    form.append('task_code', document.getElementById('vid-upload-task').value);
+    try {
+        const res = await fetch(`${API}/videos/upload`, { method:'POST', headers:{}, body:form });
+        if (!res.ok) { const e = await res.json().catch(()=>({message:res.statusText})); throw new Error(e.message||e.detail||'上传失败'); }
+        toast('视频上传成功'); loadVideos();
+    } catch(ex) { toast(ex.message,'error'); }
+}
+
+async function deleteVideo(id) {
+    if (!confirm('确认删除该视频？')) return;
+    try { await api(`${API}/videos/${id}`,{method:'DELETE'}); toast('删除成功'); loadVideos(); } catch(ex) { toast(ex.message,'error'); }
+}
+
+// ═══════════════════ PAGE: GATEWAY ═══════════════════
+async function render_gateway(el) {
+    el.innerHTML = `
+        <div class="stat-row">
+            <div class="stat-item"><div class="stat-label">数据网关状态</div><div class="stat-value c-green">运行中</div></div>
+            <div class="stat-item"><div class="stat-label">后台Worker</div><div class="stat-value c-blue">2</div></div>
+            <div class="stat-item"><div class="stat-label">队列容量</div><div class="stat-value">1000</div></div>
+        </div>
+        <div class="col2">
+            <div class="panel"><div class="panel-header"><span>QR码识别测试</span></div>
+            <div style="padding:16px;"><div class="field"><label>图像路径</label><input type="text" id="gw-qr-path" placeholder="storage/images/..."></div>
+            <button class="btn btn-primary btn-sm" onclick="testQR()" style="margin-top:8px;">测试识别</button>
+            <div id="gw-qr-result" style="margin-top:12px;font-size:12px;color:var(--muted);"></div></div></div>
+            <div class="panel"><div class="panel-header"><span>RFID读取测试</span></div>
+            <div style="padding:16px;"><div class="field"><label>无人机编号</label><input type="text" id="gw-rfid-drone" value="DRONE001"></div>
+            <button class="btn btn-primary btn-sm" onclick="testRFID()" style="margin-top:8px;">读取标签</button>
+            <div id="gw-rfid-result" style="margin-top:12px;font-size:12px;color:var(--muted);"></div></div></div>
+        </div>`;
+}
+
+async function testQR() {
+    const path = document.getElementById('gw-qr-path').value;
+    if (!path) { toast('请输入图像路径','error'); return; }
+    try {
+        const res = await api(`${API}/gateway/qrcode/process`, { method:'POST', body:JSON.stringify({image_path:path}) });
+        document.getElementById('gw-qr-result').innerHTML = res.codes?.length ? res.codes.map(c => `<div class="mono" style="color:var(--success);">✓ ${c}</div>`).join('') : '<div>未识别到二维码</div>';
+    } catch(ex) { document.getElementById('gw-qr-result').innerHTML = `<div style="color:var(--danger);">${ex.message}</div>`; }
+}
+
+async function testRFID() {
+    const drone = document.getElementById('gw-rfid-drone').value;
+    try {
+        const res = await api(`${API}/gateway/rfid/read?drone_code=${drone}`, { method:'POST' });
+        document.getElementById('gw-rfid-result').innerHTML = `<div style="color:var(--success);">${res.message}</div>`;
+    } catch(ex) { document.getElementById('gw-rfid-result').innerHTML = `<div style="color:var(--danger);">${ex.message}</div>`; }
+}
+
+// ═══════════════════ PAGE: SYSTEM ═══════════════════
+async function render_system(el) {
+    el.innerHTML = `
+        <div class="stat-row" id="sys-stats"><div class="stat-item"><div class="stat-label">加载中...</div></div></div>
+        <div class="panel"><div class="panel-header"><span>模块状态</span> <button class="btn btn-outline btn-sm" onclick="reconnectSystem()">重新检测</button></div>
+        <div style="overflow-x:auto"><table><thead><tr><th>模块</th><th>状态</th><th>响应时间</th><th>最后检测</th></tr></thead><tbody id="sys-modules"></tbody></table></div></div>`;
+    await loadSystem();
+}
+
+async function loadSystem() {
+    try {
+        const [status, health] = await Promise.allSettled([
+            api(`${API}/system/status`).catch(()=>null),
+            api(`${API}/health`).catch(()=>null)
+        ]);
+        const modules = status.value?.data?.modules || {};
+        const h = health.value || {};
+        document.getElementById('sys-stats').innerHTML = `
+            <div class="stat-item"><div class="stat-label">系统就绪</div><div class="stat-value ${status.value?.data?.ready?'c-green':'c-red'}">${status.value?.data?.ready?'是':'否'}</div></div>
+            <div class="stat-item"><div class="stat-label">数据库</div><div class="stat-value ${h.database==='connected'?'c-green':'c-red'}">${h.database||'-'}</div></div>
+            <div class="stat-item"><div class="stat-label">Redis</div><div class="stat-value ${h.redis==='connected'?'c-green':'c-red'}">${h.redis||'-'}</div></div>
+            <div class="stat-item"><div class="stat-label">整体状态</div><div class="stat-value c-green">${h.status||'-'}</div></div>`;
+
+        const modEntries = Object.entries(modules);
+        document.getElementById('sys-modules').innerHTML = modEntries.length ? modEntries.map(([k,v]) => `
+            <tr><td>${k}</td><td>${badge(v.connected ? 'connected' : 'disconnected', {connected:'success',disconnected:'danger'})}</td>
+            <td>${v.response_time_ms||'-'}ms</td><td>${fmtTime(v.last_check_time)}</td></tr>`).join('') : '<tr class="empty-row"><td colspan="4">暂无模块数据</td></tr>';
+    } catch(e) { document.getElementById('sys-modules').innerHTML = `<tr class="empty-row"><td colspan="4">加载失败: ${e.message}</td></tr>`; }
+}
+
+async function reconnectSystem() {
+    try { await api(`${API}/system/reconnect`,{method:'POST'}); toast('已重新检测'); loadSystem(); } catch(ex) { toast(ex.message,'error'); }
+}
+
+// ═══════════════════ PAGE: RFID SETTINGS ═══════════════════
+async function render_rfid_settings(el) {
+    el.innerHTML = `
+        <div id="rfid-status-bar" class="stat-row">
+            <div class="stat-item"><div class="stat-label">连接状态</div><div class="stat-value c-red" id="rfs-connected">检测中...</div></div>
+            <div class="stat-item"><div class="stat-label">串口</div><div class="stat-value" id="rfs-port">-</div></div>
+            <div class="stat-item"><div class="stat-label">功率</div><div class="stat-value" id="rfs-power">- dBm</div></div>
+            <div class="stat-item"><div class="stat-label">扫描状态</div><div class="stat-value" id="rfs-scanning">-</div></div>
+        </div>
+        <div class="col2">
+            <!-- 左列: 基本设置 + Query参数 + 高级设置 -->
+            <div>
+                <div class="panel"><div class="panel-header"><span>基本设置</span></div>
+                <div style="padding:16px;">
+                    <div class="field"><label>工作地区</label>
+                        <select id="rfs-region">
+                            <option value="1">中国2 (920-925MHz)</option>
+                            <option value="4">中国1 (840-845MHz)</option>
+                            <option value="2">美标 FCC</option>
+                            <option value="3">欧标 ETSI</option>
+                            <option value="6">韩国</option>
+                        </select></div>
+                    <div class="field"><label>发射功率 (dBm)</label>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <input type="range" id="rfs-power-slider" min="5" max="30" value="26" style="flex:1;" oninput="document.getElementById('rfs-power-val').textContent=this.value+' dBm'">
+                            <span id="rfs-power-val" style="width:60px;text-align:right;font-size:13px;color:var(--primary);">26 dBm</span>
+                        </div></div>
+                    <div style="display:flex;gap:8px;margin-top:12px;">
+                        <button class="btn btn-primary btn-sm" onclick="rfidSetRegion()">设置地区</button>
+                        <button class="btn btn-primary btn-sm" onclick="rfidSetPower()">设置功率</button>
+                        <button class="btn btn-primary btn-sm" onclick="rfidRefreshStatus()">刷新状态</button>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:8px;">
+                        <button class="btn btn-outline btn-sm" id="rfs-btn-fhss" onclick="rfidToggleFHSS()">FHSS: --</button>
+                        <button class="btn btn-outline btn-sm" id="rfs-btn-cw" onclick="rfidToggleCW()">CW: --</button>
+                    </div>
+                </div></div>
+
+                <div class="panel" style="margin-top:12px;"><div class="panel-header"><span>Query 参数</span></div>
+                <div style="padding:16px;">
+                    <div class="field"><label>DR</label><select id="rfs-q-dr"><option value="0">DR=8</option><option value="1">DR=64/3</option></select></div>
+                    <div class="field"><label>M</label><select id="rfs-q-m"><option value="0">M=1</option><option value="1">M=2</option><option value="2">M=4</option><option value="3">M=8</option></select></div>
+                    <div class="field"><label>TRext</label><select id="rfs-q-trext"><option value="0">无导频</option><option value="1" selected>有导频</option></select></div>
+                    <div class="field"><label>Sel</label><select id="rfs-q-sel"><option value="0">ALL (0)</option><option value="1">ALL (1)</option><option value="2">~SL</option><option value="3">SL</option></select></div>
+                    <div class="field"><label>Session</label><select id="rfs-q-session"><option value="0">S0</option><option value="1">S1</option><option value="2">S2</option><option value="3">S3</option></select></div>
+                    <div class="field"><label>Target</label><select id="rfs-q-target"><option value="0">A</option><option value="1">B</option></select></div>
+                    <div class="field"><label>Q 值 (0-15)</label><input type="number" id="rfs-q-q" min="0" max="15" value="4"></div>
+                    <button class="btn btn-primary btn-sm" onclick="rfidSetQuery()" style="margin-top:8px;">应用Query参数</button>
+                </div></div>
+
+                <div class="panel" style="margin-top:12px;"><div class="panel-header"><span>高级设置</span></div>
+                <div style="padding:16px;">
+                    <div class="field"><label>Modem: 混频器增益 (0-7)</label><input type="number" id="rfs-modem-mixer" min="0" max="7" value="3"></div>
+                    <div class="field"><label>Modem: 中频增益 (0-7)</label><input type="number" id="rfs-modem-if" min="0" max="7" value="6"></div>
+                    <div class="field"><label>Modem: 解码阈值</label><input type="number" id="rfs-modem-thr" value="120"></div>
+                    <button class="btn btn-primary btn-sm" onclick="rfidSetModem()" style="margin-top:4px;">设置Modem</button>
+                    <div style="display:flex;gap:8px;margin-top:8px;">
+                        <button class="btn btn-outline btn-sm" onclick="rfidGetModem()">读取Modem</button>
+                    </div>
+                    <div style="margin-top:12px;">
+                        <div class="field"><label>盘存模式</label><select id="rfs-inv-mode">
+                            <option value="0">Mode 0 — 每条命令前发Select</option>
+                            <option value="1" selected>Mode 1 — 不发Select</option>
+                            <option value="2">Mode 2 — 除盘存外发Select</option>
+                        </select></div>
+                        <div class="field"><label>环境模式</label><select id="rfs-env-mode">
+                            <option value="0" selected>高灵敏模式</option>
+                            <option value="1">密集读卡器模式</option>
+                        </select></div>
+                        <div class="field"><label>RF 信道</label><input type="number" id="rfs-channel" min="0" max="255"><button class="btn btn-outline btn-sm" onclick="rfidSetChannel()" style="margin-left:8px;">设置</button> <button class="btn btn-ghost btn-sm" onclick="rfidGetChannel()">读取</button></div>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:8px;">
+                        <button class="btn btn-primary btn-sm" onclick="rfidSetInvMode()">应用盘存模式</button>
+                        <button class="btn btn-primary btn-sm" onclick="rfidSetEnvMode()">应用环境模式</button>
+                    </div>
+                </div></div>
+            </div>
+
+            <!-- 右列: Select参数 + 系统操作 + IO + 特殊标签 -->
+            <div>
+                <div class="panel"><div class="panel-header"><span>Select 参数</span></div>
+                <div style="padding:16px;">
+                    <div class="field"><label>Target</label><select id="rfs-sel-target"><option value="0">S0</option><option value="1">S1</option><option value="2">S2</option><option value="3">S3</option><option value="4" selected>SL</option></select></div>
+                    <div class="field"><label>Action</label><input type="number" id="rfs-sel-action" value="0"></div>
+                    <div class="field"><label>Memory Bank</label><select id="rfs-sel-mem"><option value="0">RFU</option><option value="1" selected>EPC</option><option value="2">TID</option><option value="3">USR</option></select></div>
+                    <div class="field"><label>Pointer (起始地址)</label><input type="number" id="rfs-sel-pointer" value="32"></div>
+                    <div class="field"><label>Mask 长度 (bit)</label><input type="number" id="rfs-sel-masklen" value="0"></div>
+                    <div class="field"><label>Mask 数据 (hex)</label><input type="text" id="rfs-sel-mask" placeholder="如: E200..."></div>
+                    <div class="field"><label>Truncate</label><select id="rfs-sel-trunc"><option value="0" selected>禁用</option><option value="1">启用</option></select></div>
+                    <button class="btn btn-primary btn-sm" onclick="rfidSetSelect()" style="margin-top:8px;">设置Select</button>
+                    <button class="btn btn-outline btn-sm" onclick="rfidGetSelect()" style="margin-left:4px;">读取</button>
+                </div></div>
+
+                <div class="panel" style="margin-top:12px;"><div class="panel-header"><span>系统操作</span></div>
+                <div style="padding:16px;">
+                    <button class="btn btn-outline btn-sm" onclick="rfidSaveNV()">保存配置到 NV</button>
+                    <button class="btn btn-outline btn-sm" onclick="rfidLoadNV()">从 NV 加载配置</button>
+                    <div style="margin-top:8px;"><button class="btn btn-outline btn-sm" onclick="rfidRestart()">重启模块</button></div>
+                    <div style="margin-top:8px;">
+                        <div class="field"><label>空闲休眠时间 (分钟)</label><input type="number" id="rfs-sleep-time" min="0" max="255" value="10"></div>
+                        <button class="btn btn-outline btn-sm" onclick="rfidSetSleepTime()">设置休眠时间</button>
+                        <button class="btn btn-outline btn-sm" onclick="rfidSleep()" style="margin-left:4px;">立即休眠</button>
+                    </div>
+                </div></div>
+
+                <div class="panel" style="margin-top:12px;"><div class="panel-header"><span>IO 控制</span></div>
+                <div style="padding:16px;">
+                    <div class="field"><label>操作类型</label><select id="rfs-io-type"><option value="0">设置方向</option><option value="1">设置电平</option><option value="2">读取电平</option></select></div>
+                    <div class="field"><label>IO 端口</label><select id="rfs-io-port"><option value="1">IO1</option><option value="2">IO2</option><option value="3">IO3</option><option value="4">IO4</option></select></div>
+                    <div class="field"><label>模式/电平</label><select id="rfs-io-val"><option value="0">0-输入/低电平</option><option value="1">1-输出/高电平</option></select></div>
+                    <button class="btn btn-primary btn-sm" onclick="rfidIOControl()">执行 IO 控制</button>
+                </div></div>
+
+                <div class="panel" style="margin-top:12px;"><div class="panel-header"><span>诊断</span></div>
+                <div style="padding:16px;">
+                    <button class="btn btn-outline btn-sm" onclick="rfidScanJammer()">扫描干扰</button>
+                    <button class="btn btn-outline btn-sm" onclick="rfidScanRSSI()">扫描 RSSI</button>
+                    <button class="btn btn-outline btn-sm" onclick="rfidGetModuleInfo()">获取模块信息</button>
+                    <div id="rfs-diag-result" style="margin-top:8px;font-size:12px;color:var(--muted);"></div>
+                </div></div>
+            </div>
+        </div>
+
+        <div class="col2" style="margin-top:12px;">
+            <div class="panel"><div class="panel-header"><span>NXP G2X 特殊指令</span></div>
+            <div style="padding:16px;">
+                <div class="field"><label>Access 密码 (hex)</label><input type="text" id="rfs-nxp-pwd" value="00000000" maxlength="8"></div>
+                <div class="field"><label>Config 数据 (16bit hex)</label><input type="text" id="rfs-nxp-config" value="0000" maxlength="4"></div>
+                <button class="btn btn-primary btn-sm" onclick="rfidNXPConfig()">ChangeConfig</button>
+                <button class="btn btn-outline btn-sm" onclick="rfidNXPReadProtect()">ReadProtect</button>
+                <button class="btn btn-outline btn-sm" onclick="rfidNXPResetReadProtect()">Reset ReadProtect</button>
+                <button class="btn btn-outline btn-sm" onclick="rfidNXPChangeEAS('set')">Set EAS</button>
+                <button class="btn btn-outline btn-sm" onclick="rfidNXPChangeEAS('reset')">Reset EAS</button>
+                <button class="btn btn-outline btn-sm" onclick="rfidNXPEASAlarm()">EAS Alarm</button>
+            </div></div>
+
+            <div class="panel"><div class="panel-header"><span>Monza QT 指令</span></div>
+            <div style="padding:16px;">
+                <div class="field"><label>Access 密码 (hex)</label><input type="text" id="rfs-qt-pwd" value="00000000" maxlength="8"></div>
+                <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px;">
+                    <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;"><input type="checkbox" id="rfs-qt-sr"> QT_SR</label>
+                    <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;"><input type="checkbox" id="rfs-qt-mem"> QT_MEM</label>
+                    <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;"><input type="checkbox" id="rfs-qt-nv" checked> 持久化</label>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="rfidMonzaQT('read')">QT Read</button>
+                <button class="btn btn-primary btn-sm" onclick="rfidMonzaQT('write')">QT Write</button>
+            </div></div>
+        </div>`;
+
+    rfidRefreshStatus();
+}
+
+// ── RFID Settings Actions ──────────────────────────────────
+
+async function rfidRefreshStatus() {
+    try {
+        const res = await api(`${API}/rfid/status`);
+        const d = res.data;
+        document.getElementById('rfs-connected').textContent = d.connected ? '已连接' : '未连接';
+        document.getElementById('rfs-connected').className = 'stat-value ' + (d.connected ? 'c-green' : 'c-red');
+        document.getElementById('rfs-port').textContent = d.port || '-';
+        document.getElementById('rfs-power').textContent = (d.power_dbm ? d.power_dbm + ' dBm' : '-');
+        document.getElementById('rfs-scanning').textContent = d.scanning ? '运行中' : '已停止';
+        document.getElementById('rfs-scanning').className = 'stat-value ' + (d.scanning ? 'c-green' : '');
+    } catch(e) { /* ignore */ }
+}
+
+async function rfidSetRegion() {
+    const region = parseInt(document.getElementById('rfs-region').value);
+    try { const r = await api(`${API}/rfid/region`, {method:'POST', body:JSON.stringify({region})}); toast(r.message); } catch(ex) { toast(ex.message,'error'); }
+}
+async function rfidSetPower() {
+    const power = parseInt(document.getElementById('rfs-power-slider').value);
+    try { const r = await api(`${API}/rfid/power`, {method:'POST', body:JSON.stringify({power_dbm:power})}); toast(r.message); } catch(ex) { toast(ex.message,'error'); }
+}
+async function rfidToggleFHSS() {
+    const btn = document.getElementById('rfs-btn-fhss');
+    const on = !btn.dataset.on || btn.dataset.on === 'false';
+    try { const r = await api(`${API}/rfid/fhss`, {method:'POST', body:JSON.stringify({on})}); toast(r.message); btn.dataset.on = String(on); btn.textContent = 'FHSS: ' + (on ? '开' : '关'); } catch(ex) { toast(ex.message,'error'); }
+}
+async function rfidToggleCW() {
+    const btn = document.getElementById('rfs-btn-cw');
+    const on = !btn.dataset.on || btn.dataset.on === 'false';
+    try { const r = await api(`${API}/rfid/cw`, {method:'POST', body:JSON.stringify({on})}); toast(r.message); btn.dataset.on = String(on); btn.textContent = 'CW: ' + (on ? '开' : '关'); } catch(ex) { toast(ex.message,'error'); }
+}
+async function rfidSetQuery() {
+    const q = {
+        dr: parseInt(document.getElementById('rfs-q-dr').value),
+        m: parseInt(document.getElementById('rfs-q-m').value),
+        trext: parseInt(document.getElementById('rfs-q-trext').value),
+        sel: parseInt(document.getElementById('rfs-q-sel').value),
+        session: parseInt(document.getElementById('rfs-q-session').value),
+        target: parseInt(document.getElementById('rfs-q-target').value),
+        q: parseInt(document.getElementById('rfs-q-q').value),
+    };
+    try { const r = await api(`${API}/rfid/query`, {method:'POST', body:JSON.stringify(q)}); toast(r.message); } catch(ex) { toast(ex.message,'error'); }
+}
+async function rfidSetModem() {
+    const m = {
+        mixer_gain: parseInt(document.getElementById('rfs-modem-mixer').value),
+        if_gain: parseInt(document.getElementById('rfs-modem-if').value),
+        signal_threshold: parseInt(document.getElementById('rfs-modem-thr').value),
+    };
+    try { const r = await api(`${API}/rfid/modem`, {method:'POST', body:JSON.stringify(m)}); toast(r.message); } catch(ex) { toast(ex.message,'error'); }
+}
+async function rfidGetModem() {
+    try { const r = await api(`${API}/rfid/modem`); if (r.data) { document.getElementById('rfs-modem-mixer').value = r.data.mixer_gain; document.getElementById('rfs-modem-if').value = r.data.if_gain; document.getElementById('rfs-modem-thr').value = r.data.signal_threshold; toast('Modem参数已读取'); } } catch(ex) { toast(ex.message,'error'); }
+}
+async function rfidSetInvMode() {
+    const mode = parseInt(document.getElementById('rfs-inv-mode').value);
+    try { const r = await api(`${API}/rfid/mode`, {method:'POST', body:JSON.stringify({mode})}); toast(r.message); } catch(ex) { toast(ex.message,'error'); }
+}
+async function rfidSetEnvMode() {
+    const mode = parseInt(document.getElementById('rfs-env-mode').value);
+    try { const r = await api(`${API}/rfid/env`, {method:'POST', body:JSON.stringify({mode})}); toast(r.message); } catch(ex) { toast(ex.message,'error'); }
+}
+async function rfidSetChannel() {
+    const channel = parseInt(document.getElementById('rfs-channel').value);
+    try { const r = await api(`${API}/rfid/channel`, {method:'POST', body:JSON.stringify({channel})}); toast(r.message); } catch(ex) { toast(ex.message,'error'); }
+}
+async function rfidGetChannel() {
+    try { const r = await api(`${API}/rfid/channel`); document.getElementById('rfs-channel').value = r.data?.channel ?? ''; toast('信道: ' + (r.data?.channel ?? '未知')); } catch(ex) { toast(ex.message,'error'); }
+}
+async function rfidSetSelect() {
+    const s = {
+        target: parseInt(document.getElementById('rfs-sel-target').value),
+        action: parseInt(document.getElementById('rfs-sel-action').value),
+        mem_bank: parseInt(document.getElementById('rfs-sel-mem').value),
+        pointer: parseInt(document.getElementById('rfs-sel-pointer').value),
+        mask_len: parseInt(document.getElementById('rfs-sel-masklen').value),
+        mask: document.getElementById('rfs-sel-mask').value,
+        truncated: parseInt(document.getElementById('rfs-sel-trunc').value),
+    };
+    try { const r = await api(`${API}/rfid/select`, {method:'POST', body:JSON.stringify(s)}); toast(r.message); } catch(ex) { toast(ex.message,'error'); }
+}
+async function rfidGetSelect() {
+    try { const r = await api(`${API}/rfid/select`); if (r.data) { document.getElementById('rfs-sel-target').value = r.data.target; document.getElementById('rfs-sel-action').value = r.data.action; document.getElementById('rfs-sel-mem').value = r.data.mem_bank; document.getElementById('rfs-sel-pointer').value = r.data.pointer; document.getElementById('rfs-sel-masklen').value = r.data.mask_len; toast('Select参数已读取'); } } catch(ex) { toast(ex.message,'error'); }
+}
+async function rfidSaveNV() { try { const r = await api(`${API}/rfid/nv/save`, {method:'POST', body:JSON.stringify({enable:true})}); toast(r.message); } catch(ex) { toast(ex.message,'error'); } }
+async function rfidLoadNV() { try { const r = await api(`${API}/rfid/nv/load`, {method:'POST'}); toast(r.message); } catch(ex) { toast(ex.message,'error'); } }
+async function rfidSleep() { try { const r = await api(`${API}/rfid/sleep`, {method:'POST'}); toast(r.message); } catch(ex) { toast(ex.message,'error'); } }
+async function rfidSetSleepTime() { const m = parseInt(document.getElementById('rfs-sleep-time').value); try { const r = await api(`${API}/rfid/sleep/time`, {method:'POST', body:JSON.stringify({minutes:m})}); toast(r.message); } catch(ex) { toast(ex.message,'error'); } }
+async function rfidRestart() { try { const r = await api(`${API}/rfid/restart`, {method:'POST'}); toast(r.message); } catch(ex) { toast(ex.message,'error'); } }
+async function rfidIOControl() {
+    const io = {
+        opt_type: parseInt(document.getElementById('rfs-io-type').value),
+        io_port: parseInt(document.getElementById('rfs-io-port').value),
+        mode_or_level: parseInt(document.getElementById('rfs-io-val').value),
+    };
+    try { const r = await api(`${API}/rfid/io`, {method:'POST', body:JSON.stringify(io)}); toast(r.message); } catch(ex) { toast(ex.message,'error'); }
+}
+async function rfidScanJammer() { try { const r = await api(`${API}/rfid/jammer`, {method:'POST'}); document.getElementById('rfs-diag-result').innerHTML = '<span style="color:var(--success);">干扰扫描已启动</span>'; } catch(ex) { document.getElementById('rfs-diag-result').innerHTML = '<span style="color:var(--danger);">'+ex.message+'</span>'; } }
+async function rfidScanRSSI() { try { const r = await api(`${API}/rfid/rssi`, {method:'POST'}); document.getElementById('rfs-diag-result').innerHTML = '<span style="color:var(--success);">RSSI扫描已启动</span>'; } catch(ex) { document.getElementById('rfs-diag-result').innerHTML = '<span style="color:var(--danger);">'+ex.message+'</span>'; } }
+async function rfidGetModuleInfo() { try { const r = await api(`${API}/rfid/info`); document.getElementById('rfs-diag-result').innerHTML = '<span style="color:var(--success);">模块信息: '+ (r.data?.module_info || '无') +'</span>'; } catch(ex) { document.getElementById('rfs-diag-result').innerHTML = '<span style="color:var(--danger);">'+ex.message+'</span>'; } }
+async function rfidNXPConfig() {
+    const pwd = document.getElementById('rfs-nxp-pwd').value;
+    const cfg = parseInt(document.getElementById('rfs-nxp-config').value, 16);
+    try { const r = await api(`${API}/rfid/nxp/config`, {method:'POST', body:JSON.stringify({access_pwd:pwd, config_data:cfg})}); toast(r.message); } catch(ex) { toast(ex.message,'error'); }
+}
+async function rfidNXPReadProtect() { const pwd = document.getElementById('rfs-nxp-pwd').value; try { const r = await api(`${API}/rfid/nxp/readprotect`, {method:'POST', body:JSON.stringify({access_pwd:pwd, is_reset:false})}); toast(r.message); } catch(ex) { toast(ex.message,'error'); } }
+async function rfidNXPResetReadProtect() { const pwd = document.getElementById('rfs-nxp-pwd').value; try { const r = await api(`${API}/rfid/nxp/readprotect`, {method:'POST', body:JSON.stringify({access_pwd:pwd, is_reset:true})}); toast(r.message); } catch(ex) { toast(ex.message,'error'); } }
+async function rfidNXPChangeEAS(action) { const pwd = document.getElementById('rfs-nxp-pwd').value; try { const r = await api(`${API}/rfid/nxp/eas`, {method:'POST', body:JSON.stringify({access_pwd:pwd, is_set:action==='set'})}); toast(r.message); } catch(ex) { toast(ex.message,'error'); } }
+async function rfidNXPEASAlarm() { try { const r = await api(`${API}/rfid/nxp/alarm`, {method:'POST'}); toast(r.message); } catch(ex) { toast(ex.message,'error'); } }
+async function rfidMonzaQT(action) {
+    const pwd = document.getElementById('rfs-qt-pwd').value;
+    const qt = {
+        access_pwd: pwd,
+        is_write: action === 'write',
+        qt_sr: document.getElementById('rfs-qt-sr').checked,
+        qt_mem: document.getElementById('rfs-qt-mem').checked,
+        is_persistence: document.getElementById('rfs-qt-nv').checked,
+    };
+    try { const r = await api(`${API}/rfid/monza/qt`, {method:'POST', body:JSON.stringify(qt)}); toast(r.message); } catch(ex) { toast(ex.message,'error'); }
+}
+
+// ═══════════════════ INIT ═══════════════════
+(async function init() {
+    // 1. 尝试恢复已有登录态
+    const savedToken = localStorage.getItem('yg_token');
+    const savedUser = localStorage.getItem('yg_user');
+    if (savedToken && savedUser) {
+        TOKEN = savedToken;
+        USER = JSON.parse(savedUser);
+        showApp();
+        return;
+    }
+
+    // 2. 尝试自动登录
+    try {
+        const res = await fetch(`${API}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: 'admin', password: 'admin123' })
+        });
+        if (res.ok) {
+            const data = await res.json();
+            TOKEN = data.access_token;
+            USER = data.user || { username: 'admin', role: 'admin' };
+            localStorage.setItem('yg_token', TOKEN);
+            localStorage.setItem('yg_user', JSON.stringify(USER));
             showApp();
-        } catch (e) { logout(); }
-    }
-    // 自动刷新看板
-    if (AUTH_TOKEN) {
-        setInterval(() => {
-            const active = document.querySelector('.tab-content.active');
-            if (active?.id === 'tab-dashboard') loadDashboard();
-        }, 15000);
-    }
+            return;
+        }
+    } catch(e) { console.warn('自动登录失败:', e); }
+
+    // 3. 尝试自动注册 + 登录 (warehouse 系统 register 用 Form 格式)
+    try {
+        const formData = new URLSearchParams();
+        formData.append('username', 'admin');
+        formData.append('password', 'admin123');
+        formData.append('email', 'admin@yugan.local');
+        formData.append('full_name', '系统管理员');
+        const regRes = await fetch(`${API}/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: formData.toString()
+        });
+        if (regRes.ok) {
+            // 注册成功，重试登录
+            const loginRes = await fetch(`${API}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: 'admin', password: 'admin123' })
+            });
+            if (loginRes.ok) {
+                const data = await loginRes.json();
+                TOKEN = data.access_token;
+                USER = data.user || { username: 'admin', role: 'admin' };
+                localStorage.setItem('yg_token', TOKEN);
+                localStorage.setItem('yg_user', JSON.stringify(USER));
+                showApp();
+                return;
+            }
+        }
+    } catch(e) { console.warn('自动注册失败:', e); }
+
+    // 4. 调用 ensure-admin 强制修复 admin 用户 → 重试登录
+    try {
+        await fetch(`${API}/auth/ensure-admin`, { method: 'POST' });
+        const loginRes = await fetch(`${API}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: 'admin', password: 'admin123' })
+        });
+        if (loginRes.ok) {
+            const data = await loginRes.json();
+            TOKEN = data.access_token;
+            USER = data.user || { username: 'admin', role: 'admin' };
+            localStorage.setItem('yg_token', TOKEN);
+            localStorage.setItem('yg_user', JSON.stringify(USER));
+            showApp();
+            return;
+        }
+    } catch(e) { console.warn('ensure-admin 失败:', e); }
+
+    // 5. 全部失败 — 显示登录页
+    document.getElementById('login-screen').style.display = 'flex';
 })();
 </script>
 </body>
