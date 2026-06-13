@@ -353,6 +353,45 @@ class User(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+# ========== RFID库存快照表 ==========
+class Inventory(Base):
+    """RFID实时库存快照 — 按RFID标签聚合，每次入库时更新"""
+    __tablename__ = "inventory"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rfid_tag_id = Column(Integer, ForeignKey("rfid_tags.id"), unique=True, nullable=False, comment="RFID标签ID")
+    goods_name = Column(String(200), nullable=True, comment="货物名称（冗余自rfid_tags）")
+    shelf_id = Column(Integer, ForeignKey("shelves.id"), nullable=True, comment="当前所在货架")
+    quantity = Column(Integer, default=0, comment="当前库存数量")
+    last_read_at = Column(DateTime, nullable=True, comment="最后读取时间")
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # 关系
+    rfid_tag = relationship("RFIDTag")
+    shelf = relationship("Shelf")
+
+
+# ========== RFID入库记录表 ==========
+class InboundRecord(Base):
+    """RFID自动入库流水记录"""
+    __tablename__ = "inbound_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rfid_tag_id = Column(Integer, ForeignKey("rfid_tags.id"), nullable=True, comment="关联RFID标签(未注册时为空)")
+    epc = Column(String(100), nullable=False, index=True, comment="读到的EPC标签号")
+    goods_name = Column(String(200), nullable=True, comment="货物名称")
+    shelf_id = Column(Integer, ForeignKey("shelves.id"), nullable=True, comment="货架")
+    rssi = Column(Integer, nullable=True, comment="信号强度dBm")
+    status = Column(String(20), default="success", comment="success / failed")
+    message = Column(String(512), nullable=True, comment="备注（失败原因等）")
+    created_at = Column(DateTime, server_default=func.now(), index=True)
+
+    # 关系
+    rfid_tag = relationship("RFIDTag")
+    shelf = relationship("Shelf")
+
+
 # ========== 系统日志 ==========
 class SystemLog(Base):
     """系统日志表"""

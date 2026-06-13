@@ -1,12 +1,19 @@
 """
-RFID API路由 - 读取/写入标签数据
+RFID API路由 - 读取/写入标签数据 (PRE系列 UHF 模块)
   GET  /api/v1/rfid/status         检查RFID连接状态
   POST /api/v1/rfid/connect        连接/重连RFID
   POST /api/v1/rfid/read           单次读取标签
   POST /api/v1/rfid/write          写入标签
-  POST /api/v1/rfid/scan-start     启动连续扫描
-  POST /api/v1/rfid/scan-stop      停止连续扫描
+  POST /api/v1/rfid/scan/start     启动连续扫描
+  POST /api/v1/rfid/scan/stop      停止连续扫描
+  POST /api/v1/rfid/scan/clear     清空标签缓存
   GET  /api/v1/rfid/tags           获取已扫描标签列表
+  POST /api/v1/rfid/lock           锁定/解锁标签内存
+  POST /api/v1/rfid/kill           杀死标签
+  GET  /api/v1/rfid/power          获取发射功率
+  POST /api/v1/rfid/power          设置发射功率
+  POST /api/v1/rfid/query          设置盘存 Query 参数
+  POST /api/v1/rfid/region         设置工作地区
 """
 import logging
 from fastapi import APIRouter, HTTPException
@@ -118,3 +125,105 @@ def clear_tags():
     reader = get_rfid_reader()
     reader.clear_last_tags()
     return APIResponse(success=True, message="标签缓存已清空")
+
+
+# ═══════════════════════════════════════════════════════════
+#  PRE 模块扩展端点
+# ═══════════════════════════════════════════════════════════
+
+class LockRequest(BaseModel):
+    lock_opt: int = Field(1, description="0=unlock, 1=lock, 2=perma_unlock, 3=perma_lock")
+    mem_space: int = Field(2, description="0=KillPwd, 1=AccessPwd, 2=EPC, 3=TID, 4=User")
+    access_pwd: Optional[str] = Field(None, description="访问密码(hex, 4字节), 默认00000000")
+
+
+class KillRequest(BaseModel):
+    kill_pwd: Optional[str] = Field(None, description="销毁密码(hex, 4字节), 默认00000000")
+
+
+class PowerSetRequest(BaseModel):
+    power_dbm: int = Field(..., ge=5, le=30, description="发射功率(dBm), 5-30")
+
+
+class QueryParamsRequest(BaseModel):
+    dr: int = Field(0, description="DR=8(0), DR=64/3(1)")
+    m: int = Field(0, description="M=1(0), M=2(1), M=4(2), M=8(3)")
+    trext: int = Field(1, description="0=无导频, 1=有导频")
+    sel: int = Field(0, description="0/1=ALL, 2=~SL, 3=SL")
+    session: int = Field(0, description="S0(0)-S3(3)")
+    target: int = Field(0, description="A(0), B(1)")
+    q: int = Field(4, ge=0, le=15, description="Q值, 0-15")
+
+
+class RegionRequest(BaseModel):
+    region: int = Field(..., description="0x01=中国2, 0x02=美标, 0x03=欧标, 0x04=中国1")
+
+
+@router.post("/lock")
+def lock_tag(req: LockRequest):
+    """锁定/解锁标签内存"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    pwd = bytes.fromhex(req.access_pwd) if req.access_pwd else b'\x00\x00\x00\x00'
+    ok = reader.lock_tag(lock_opt=req.lock_opt, mem_space=req.mem_space, access_pwd=pwd)
+    return APIResponse(success=ok, message="操作成功" if ok else "操作失败")
+
+
+@router.post("/kill")
+def kill_tag(req: KillRequest):
+    """杀死标签 (慎用)"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    pwd = bytes.fromhex(req.kill_pwd) if req.kill_pwd else b'\x00\x00\x00\x00'
+    ok = reader.kill_tag(kill_pwd=pwd)
+    return APIResponse(success=ok, message="标签已销毁" if ok else "销毁失败")
+
+
+@router.get("/power")
+def get_power():
+    """获取当前发射功率(dBm)"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        raise HTTPException(status_code=503, detail="RFID未连接")
+    pwr = reader.get_power()
+    return APIResponse(success=pwr is not None, data={"power_dbm": pwr})
+
+
+@router.post("/power")
+def set_power(req: PowerSetRequest):
+    """设置发射功率"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.set_power(req.power_dbm)
+    return APIResponse(success=True, message=f"功率已设为 {req.power_dbm} dBm")
+
+
+@router.post("/query")
+def set_query_params(req: QueryParamsRequest):
+    """设置盘存 Query 参数"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.set_query_params(
+        dr=req.dr, m=req.m, trext=req.trext,
+        sel=req.sel, session=req.session, target=req.target, q=req.q,
+    )
+    return APIResponse(success=True, message="Query参数已更新")
+
+
+@router.post("/region")
+def set_region(req: RegionRequest):
+    """设置工作地区"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.set_region(req.region)
+    return APIResponse(success=True, message=f"地区已设为 0x{req.region:02X}")

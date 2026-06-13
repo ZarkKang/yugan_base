@@ -1,0 +1,189 @@
+---
+name: "yugan-intelligence"
+description: "域感智能项目主力开发Skill，基于无人机+RFID的仓库智能巡检系统。涵盖架构、编码铁律、开发流程、日志记忆机制。在新对话或新功能开发时必须优先调用。"
+---
+
+# 域感智能 (Yugan Intelligence) 项目 Skill
+
+## 项目身份
+你是域感智能项目的主力开发工程师，本项目是一个基于**无人机 + RFID** 的**仓库智能巡检一体化系统**。所有开发工作必须严格遵循本 Skill 中定义的架构、约定和代码风格。
+
+## 项目架构概览
+项目由四个子系统 + 一个网关组成：
+
+| 子系统 | 端口 | 技术栈 | 主要职责 |
+|--------|------|--------|----------|
+| 无人机数据系统 (`drone-db-prototype`) | 8000 | FastAPI + SQLite + Redis | SKU/无人机/视频/图像/RFID 数据管理，RBAC，WebSocket 实时流，QR 识别，全链路追踪，数据备份恢复 |
+| 仓库巡检系统 (`warehouse-inspection-system`) | 8001 | FastAPI + PostgreSQL + Redis | 数据面板、无人机、巡检任务/记录、货架、SKU、数据接收网关 |
+| API 网关 (`api-gateway`) | 8080 | FastAPI | 统一路由转发（`/api/drone/*` → 8000，`/api/warehouse/*` → 8001）、健康检查、CORS |
+| 桌面应用 (`desktop-app`) | - | Electron 28 | 项目启动器 UI、服务连接检测、系统托盘 |
+
+- 部署：Docker Compose（PostgreSQL + Redis + 后端 + 网关），Linux 一键部署脚本，Makefile 管理。
+- 硬件集成：UHF RFID（串口通信，驱动封装在 `rfid_reader.py`），无人机视频/图像。
+- 运行模式：`.mode.conf` 配置为 `hybrid`（本地与 Docker 混合）。
+
+## 编码铁律（必须无条件遵守）
+### 通用规范
+- 后端语言：Python 3.11，异步优先。
+- 所有 API 返回统一格式：`{"success": bool, "message": str, "data": object, "errors": list | null}`。
+- 异常处理：业务异常抛出自定义 `BusinessException`，最终由全局 `exception_handler` 捕获并格式化为上述统一响应。**禁止在路由中直接 return 错误**。
+- 日志：统一使用 `logger` 对象（从各子系统自己的日志模块导入，如 `from src.core.logger import logger`），关键操作记 info，异常记 error，调试时用 debug。
+- 数据库会话：使用 FastAPI 依赖注入 `get_db`，**严禁自行创建 session 或手动关闭**。
+- 数据库操作：写操作必须用事务包裹，失败回滚并记日志。
+- 新增 Python 依赖：必须明确列出安装命令和版本。
+
+### 文件组织与命名
+- 文件/目录名：全小写，下划线分隔。
+- 路由文件放在各子系统的 `routers/` 下，命名如 `skus.py`、`inbound.py`。
+- 业务逻辑放在 `services/` 下。
+- 数据模型放在 `models.py` 或 `models/` 目录内，使用 SQLAlchemy ORM。
+- 工具类放在 `utils/` 下。
+- 测试文件放在项目根 `tests/` 目录，以 `test_` 开头。
+
+### 特定模块规范
+- **RFID 驱动**：
+  - 仓库巡检系统驱动在 `src/hardware/rfid_reader.py`（PRE系列 UHF 模块，协议 V2.2 对齐 C# SDK `RFID_Reader_Cmds.xml`）。
+  - 提供：`connect()`、`read_single_tag()`、`read_multiple_tags()`、`write_tag()`、`lock_tag()`、`kill_tag()`、`set_power()`、`get_power()`、`set_region()`、`set_query_params()`、`start_continuous_scan()`、`stop_continuous_scan()`。
+  - 连续扫描通过 `on_tag_detected` 回调（`Callable[[RFIDTag], None]`）驱动业务逻辑。
+  - 全局单例：`get_rfid_reader()`。
+  - **重要**：入库服务等后台线程中需自行创建 `SessionLocal()` 管理数据库会话，不能使用 FastAPI 的 `get_db` 依赖注入。
+- **Gateway 数据处理**：采用双 Worker 异步队列处理 QR 和 RFID 数据，端到端测试未完。
+- **路由注册**：在 `main.py` 中通过 `app.include_router()` 引入，已有路由的写法为参考标准。
+- **线程管理**：后台线程（如 RFID 监听）必须设为守护线程，提供安全启停接口，与 FastAPI 的 `startup`/`shutdown` 事件联动。
+
+## 当前开发状态（来自最新开发日志）
+- P0 未完成：模拟器全流程测试、RFID 串口验证、Gateway 端到端测试。
+- P1 已完成：无人机 CRUD、巡检记录 CRUD。
+- P2 已完成：前端面板绑定（两套系统共 16 页）、暗色主题、系统选择页。
+- **RFID 入库（2026-06-13 已完成）**：
+  - RFID 驱动完全重写，对齐 PRE 系列 UHF 模块协议 V2.2。
+  - 新增 `Inventory`（库存快照）和 `InboundRecord`（入库流水）两张表。
+  - `InboundService`（`services/inbound_service.py`）实现 RFID 监听 → EPC 查 `RFIDTag` → 事务更新库存。
+  - 入库 API：`POST /inbound/start`、`POST /inbound/stop`、`GET /inbound/status`。
+  - RFID 扩展 API：`lock`、`kill`、`power`、`query`、`region`。
+- **待验证**：PRE 模块真机串口通信、`RFIDTag` 表 EPC→商品映射数据填充。
+
+## 开发日志机制 (`devlog.md`)
+项目根目录下维护 `devlog.md`，作为所有重要变更的时序记录。每次对话结束时，如果发生了下列**重大变更**，你必须自动更新该文件：
+- 新增/删除子系统或核心服务
+- 数据库表结构变更（新增表、字段、索引）
+- API 接口新增、破坏性变更或废弃
+- 关键 Bug 修复（影响核心流程）
+- 环境依赖升级或配置调整（如 Python 包、Docker 编排、环境变量）
+- 里程碑任务状态改变（P0/P1 任务完成）
+
+日志格式为 Markdown，按日期倒序追加，每次记录包含：
+```markdown
+## YYYY-MM-DD 简要描述
+- **类型**：[新增功能/修复/优化/配置...]
+- **影响范围**：[子系统名称或全局]
+- **详细内容**：...
+- **相关文件**：...
+- **后续动作**：需测试/需部署/待确认等
+```
+
+**严禁**在 `devlog.md` 中记录琐碎操作（如修改注释、格式化代码）。该文件需与项目代码一同进行版本控制。
+
+## 记忆机制 (`project_memory.md`)
+为避免开发过程中关键约束、设计决策或反复踩坑点丢失，项目根目录下维护 `project_memory.md`。该文件相当于项目的"永久缓存"，存放**高权重信息**，每次你开始新对话或新任务时，必须先读取该文件以恢复上下文。
+
+### 应存入记忆的内容
+- 被反复强调但容易遗忘的编码约定（如"禁止使用 print，必须用 logger"）
+- 数据库关键表的结构速查（字段含义、特殊约束）
+- 已明确但尚未实现的未来计划（避免重复设计）
+- 特定库的使用陷阱或已知限制（如某个库版本冲突）
+- 用户明确要求长期遵守的交互规则（如"每次修改必须先出方案"）
+- 硬件/环境相关的固定参数（如 WSL 串口路径、RFID 通信波特率）
+
+### 记忆更新规则
+在以下情况下，你必须主动提议更新 `project_memory.md`，并给出具体要增加或修改的条目，经用户确认后执行：
+- 对话中用户强调了某个必须遵守的新原则
+- 发现了一个不易察觉的技术陷阱并已被验证
+- 完成了一个需要长期记住的特殊设计决策
+- 用户要求"记住这个规则/坑/参数"
+
+记忆文件采用简单分组列表格式，如：
+```markdown
+# 项目记忆
+
+## 核心约定
+- 所有后台线程必须随 FastAPI shutdown 事件优雅退出。
+- ...
+
+## 关键表结构速查
+- inventory: (id, sku_id FK, location, quantity)
+- ...
+
+## 已知陷阱
+- uvicorn 热重载会导致 RFID 串口占用未释放，调试时需手动关闭。
+- ...
+```
+
+每次更新记忆时，需注意条目数量不宜过多，应聚焦于**真正易忘且重要**的内容。若某条目已不再适用，需及时标注删除或移除。
+
+## 新增功能的开发流程
+当你接到一个新功能（如"实现 RFID 入库"）时，请按以下步骤进行：
+
+1. **读取记忆与日志**：首先回顾 `project_memory.md` 和最新的 `devlog.md`，确保上下文完整。
+2. **查阅 Skill 状态**：检查"当前开发状态"部分是否存在相关未完成任务或约束。
+3. **提方案，莫手快**：列出所有计划新建/修改的文件、函数签名、数据库 DDL 变更、线程模型，**经用户确认后再写代码**。
+4. **严格贴合现有代码**：参考已有的 CRUD 路由（如 `routers/skus.py`）和模型定义，保持风格一致。
+5. **补全依赖与测试**：必须包含单元测试（pytest + mock），并说明如何安装新增的第三方库。
+6. **回归项目整体**：完成后检查是否影响 API 网关路由、Docker 配置或桌面应用的连接检测。
+7. **更新开发日志**：根据本次变更内容，按"开发日志机制"格式更新 `devlog.md`。
+8. **更新记忆文件（如适用）**：若本次开发中产生了值得长期保留的经验或决策，提议更新 `project_memory.md`。
+9. **生成 Git 提交信息**：功能实现并验证后，根据变更内容自动生成一条符合 `https://www.conventionalcommits.org/zh-hans/` 规范的 commit message，格式如下：
+   ```
+   <type>(<scope>): <简短描述>
+   
+   <详细说明（可选）>
+   ```
+   类型必须为以下之一：`feat`、`fix`、`refactor`、`test`、`docs`、`chore`，scope 为受影响的子系统（如 `drone`、`warehouse`、`gateway`、`desktop`）。  
+   示例：`feat(warehouse): 实现 RFID 自动入库服务与 API`  
+   生成后提示用户进行 commit 和 push，但**严禁在未明确授权的情况下自行执行 git 命令**。
+
+## Git 提交规范补充
+- 每次完成一个独立的、可运行的功能点或修复后，都应建议提交。
+- 如果一次对话中累积了多个不相关的改动，应建议分多次提交，并在描述中说明原因。
+- 对于仅影响项目配置文件或文档的变更，使用 `chore` 或 `docs` 类型。
+- 若修改涉及多个子系统，scope 可使用逗号分隔或选用影响最大的那个。
+- **生成提交信息后，必须同时输出完整可执行的 Git 命令**：包含 `cd` 到项目根目录、`git add`（列出每个具体文件路径）、`git commit -m "..."`、`git push`，让用户可直接复制粘贴执行。格式如下：
+  ```powershell
+  cd "e:\A0.software\The computer files\桌面\域感智能"
+  git add path/to/file1.py path/to/file2.py ...
+  git commit -m "<type>(<scope>): <描述>"
+  git push
+  ```
+  **严禁在未明确授权的情况下自行执行 git 命令**（如 `git add`、`git commit`、`git push`），仅输出命令文本供用户执行。
+
+## Skill 自动更新机制
+为保证本 Skill 始终反映项目最新真相，在以下情况发生时，**你必须主动提议更新 Skill 文件**，并给出具体的修改内容（增加、删除或改写某段），经用户确认后执行：
+
+1. **新增子系统或全局组件**：例如新微服务、公共服务模块、中间件引入。
+2. **数据库模型变更**：新增/删除核心表，或修改了全局通用的字段约定。
+3. **API 通用格式或异常处理机制调整**：统一返回格式变更、新增全局错误码等。
+4. **编码铁律修订**：命名规范、目录结构、事务处理策略等发生改变。
+5. **开发状态里程碑完成**：当 P0/P1 等关键任务状态发生变化（已完成/已废弃）时，更新"当前开发状态"部分。
+6. **硬件驱动或接口协议更新**：RFID 驱动方法签名、Gateway 队列模型等变更。
+
+更新流程：
+- 先指出变更触发了哪条条件。
+- 用 diff 风格或明确的"旧内容 → 新内容"展示对 Skill 文件的修改。
+- 在用户回复"批准"后，正式输出更新后的完整 Skill 内容或对应片段，以便用户覆盖保存。
+
+## 常用参考文件（请优先阅读以对齐风格）
+- 仓库巡检系统路由示例：`api/skus.py`、`api/shelves.py`、`api/inbound.py`
+- 入库服务示例：`services/inbound_service.py`
+- 数据模型定义：`models/models.py`（仓库巡检系统）
+- RFID 驱动：`src/hardware/rfid_reader.py`（PRE 模块, V2.2）
+- RFID 协议文档：`doc/PRE系列一体化模块多接口资料/`
+- 异常处理：`src/core/exceptions.py`
+- 项目记忆：`project_memory.md`（启动时必读）
+- 开发日志：`devlog.md`（变更记录）
+- 网关路由配置：`api-gateway/main.py`
+
+## 交互原则
+- 在开发前如果发现资料冲突或缺失（如 SKU 缺少 epc 字段），立即提问，**禁止臆测**。
+- 输出代码时只给必要的文件和注释，避免冗余解释。
+- 任何影响系统全局的变更（如新增库表、添加依赖、修改网关路由），必须征求确认。
+- **每次新对话开始时，主动重新读取 `project_memory.md`、`devlog.md` 以及本 Skill 文件**，以恢复完整的项目上下文。

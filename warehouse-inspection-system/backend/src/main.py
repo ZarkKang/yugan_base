@@ -1,16 +1,27 @@
 """
 FastAPI 应用主入口
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import logging
+import os
+from pathlib import Path
 
 from .core.config import settings
 from .db.database import init_db, engine
 from .db.redis import redis_client
 from .db.seed import seed_data
-from .api import auth, inspection, drones, gateway, images, rfid, system, dashboard
+from .api import auth, inspection, drones, gateway, images, rfid, system, dashboard, shelves, skus, videos, inbound
+from .core.exceptions import (
+    validation_exception_handler,
+    http_exception_handler,
+    global_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
+from fastapi import HTTPException
 
 # 配置日志
 logging.basicConfig(
@@ -41,7 +52,12 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # 关闭时
+    # 关闭时 — 优雅停止入库服务
+    try:
+        from .services.inbound_service import get_inbound_service
+        get_inbound_service().stop()
+    except Exception:
+        pass
     redis_client.disconnect()
     logger.info("应用已关闭")
 
@@ -53,6 +69,11 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# 注册全局异常处理器
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(Exception, global_exception_handler)
+
 
 # CORS配置
 app.add_middleware(
@@ -63,6 +84,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 静态文件 - 前端资源
+FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
+if FRONTEND_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+    logger.info(f"前端静态文件目录: {FRONTEND_DIR}")
+else:
+    logger.warning(f"前端静态文件目录不存在: {FRONTEND_DIR}")
+
 # 注册路由
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(inspection.router, prefix="/api/v1")
@@ -72,16 +101,25 @@ app.include_router(images.router, prefix="/api/v1")
 app.include_router(rfid.router, prefix="/api/v1")
 app.include_router(system.router, prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
+app.include_router(shelves.router, prefix="/api/v1")
+app.include_router(skus.router, prefix="/api/v1")
+app.include_router(videos.router, prefix="/api/v1")
+app.include_router(inbound.router, prefix="/api/v1")
 
 
-@app.get("/")
-def root():
-    """根路径"""
-    return {
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    """根路径 - 服务前端页面或返回 API 信息"""
+    index_file = FRONTEND_DIR / "index.html" if FRONTEND_DIR.exists() else None
+    if index_file and index_file.exists():
+        return index_file.read_text(encoding="utf-8")
+    return JSONResponse(content={
         "name": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "status": "running"
-    }
+        "status": "running",
+        "docs": "/docs",
+        "health": "/health"
+    })
 
 
 @app.get("/health")
@@ -99,6 +137,63 @@ def health_check():
         "status": "healthy",
         "database": "connected",
         "redis": "connected" if redis_status else "disconnected"
+    }
+
+
+@app.get("/select", response_class=HTMLResponse)
+async def system_selection():
+    """系统选择页面"""
+    select_file = Path(__file__).resolve().parent.parent.parent.parent / "index.html"
+    if select_file.exists():
+        return select_file.read_text(encoding="utf-8")
+    return JSONResponse(content={"message": "系统选择页面不可用"})
+
+
+@app.get("/api/status")
+def system_status():
+    """系统状态 - 包含数据库、Redis、服务列表等信息"""
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        db_status = "connected"
+    except Exception:
+        db_status = "disconnected"
+
+    try:
+        if redis_client.client:
+            redis_client.client.ping()
+            redis_status = "connected"
+        else:
+            redis_status = "disconnected"
+    except Exception:
+        redis_status = "disconnected"
+
+    routers = [
+        {"prefix": "/api/v1/auth", "description": "认证与用户管理"},
+        {"prefix": "/api/v1/inspections", "description": "巡检任务管理"},
+        {"prefix": "/api/v1/drones", "description": "无人机管理"},
+        {"prefix": "/api/v1/gateway", "description": "数据网关"},
+        {"prefix": "/api/v1/images", "description": "图像管理"},
+        {"prefix": "/api/v1/rfid", "description": "RFID数据"},
+        {"prefix": "/api/v1/system", "description": "系统管理"},
+        {"prefix": "/api/v1/dashboard", "description": "仪表板"},
+        {"prefix": "/api/v1/shelves", "description": "货架管理"},
+        {"prefix": "/api/v1/skus", "description": "SKU管理"},
+        {"prefix": "/api/v1/videos", "description": "视频管理"},
+    ]
+
+    return {
+        "success": True,
+        "data": {
+            "name": settings.APP_NAME,
+            "version": settings.APP_VERSION,
+            "database": db_status,
+            "redis": redis_status,
+            "services": routers,
+            "docs": "/docs",
+            "health": "/health",
+        }
     }
 
 
