@@ -18,6 +18,7 @@ RFID API路由 - 读取/写入标签数据 (PRE系列 UHF 模块)
 """
 import logging
 import sys
+from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
