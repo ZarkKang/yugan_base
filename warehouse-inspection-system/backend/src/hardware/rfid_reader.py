@@ -972,6 +972,173 @@ class RFIDReader:
         return None
 
     # ═══════════════════════════════════════════════════════
+    #  RF 信道 (CMD_SET_RF_CHANNEL=0x10, CMD_GET_RF_CHANNEL=0x11)
+    # ═══════════════════════════════════════════════════════
+
+    def set_rf_channel(self, channel: int) -> bool:
+        """设置RF信道"""
+        if not self.is_connected():
+            return False
+        cmd = self._build_frame(CMD_SET_RF_CHANNEL, bytes([channel & 0xFF]))
+        self.serial.write(cmd)
+        time.sleep(0.3)
+        return True
+
+    def get_rf_channel(self) -> Optional[int]:
+        """获取当前RF信道"""
+        if not self.is_connected():
+            return None
+        with self._lock:
+            self.serial.read(1000)
+            self.serial.write(self._build_frame(CMD_GET_RF_CHANNEL))
+            frame = self._read_frame(timeout=2.0)
+            if frame:
+                ftype, fcmd, params = self._parse_response(frame)
+                if ftype == TYPE_ANSWER and fcmd == CMD_GET_RF_CHANNEL and len(params) >= 1:
+                    return params[0]
+        return None
+
+    # ═══════════════════════════════════════════════════════
+    #  Modem 参数 (CMD_READ_MODEM_PARA=0x15)
+    # ═══════════════════════════════════════════════════════
+
+    def get_modem_params(self) -> Optional[dict]:
+        """读取Modem参数"""
+        if not self.is_connected():
+            return None
+        with self._lock:
+            self.serial.read(1000)
+            self.serial.write(self._build_frame(CMD_READ_MODEM_PARA))
+            frame = self._read_frame(timeout=2.0)
+            if frame:
+                ftype, fcmd, params = self._parse_response(frame)
+                if ftype == TYPE_ANSWER and fcmd == CMD_READ_MODEM_PARA and len(params) >= 4:
+                    return {
+                        "mixer_gain": params[0],
+                        "if_gain": params[1],
+                        "signal_threshold": struct.unpack('>H', params[2:4])[0],
+                    }
+        return None
+
+    # ═══════════════════════════════════════════════════════
+    #  Select 参数 (CMD_GET_SELECT_PARA=0x17)
+    # ═══════════════════════════════════════════════════════
+
+    def get_select_params(self) -> Optional[dict]:
+        """获取Select参数"""
+        if not self.is_connected():
+            return None
+        with self._lock:
+            self.serial.read(1000)
+            self.serial.write(self._build_frame(CMD_GET_SELECT_PARA))
+            frame = self._read_frame(timeout=2.0)
+            if frame:
+                ftype, fcmd, params = self._parse_response(frame)
+                if ftype == TYPE_ANSWER and fcmd == CMD_GET_SELECT_PARA:
+                    target_action = params[0] if len(params) > 0 else 0
+                    return {
+                        "target": (target_action >> 3) & 0x07,
+                        "action": target_action & 0x07,
+                        "mem_bank": params[1] if len(params) > 1 else 0,
+                        "pointer": struct.unpack('>I', params[2:6])[0] if len(params) >= 6 else 0,
+                        "mask_len": params[6] if len(params) > 6 else 0,
+                    }
+        return None
+
+    # ═══════════════════════════════════════════════════════
+    #  干扰扫描 / RSSI (CMD_SCAN_JAMMER=0x19, CMD_SCAN_RSSI=0x1A)
+    # ═══════════════════════════════════════════════════════
+
+    def scan_jammer(self) -> bool:
+        """扫描干扰"""
+        if not self.is_connected():
+            return False
+        cmd = self._build_frame(CMD_SCAN_JAMMER)
+        self.serial.write(cmd)
+        time.sleep(0.3)
+        return True
+
+    def scan_rssi(self) -> bool:
+        """扫描RSSI"""
+        if not self.is_connected():
+            return False
+        cmd = self._build_frame(CMD_SCAN_RSSI)
+        self.serial.write(cmd)
+        time.sleep(0.3)
+        return True
+
+    # ═══════════════════════════════════════════════════════
+    #  NXP G2X 特殊指令
+    # ═══════════════════════════════════════════════════════
+
+    def nxp_change_config(self, access_pwd: str, config_data: int) -> bool:
+        """NXP G2X ChangeConfig (CMD_NXP_CHANGE_CONFIG=0x23)"""
+        if not self.is_connected():
+            return False
+        pwd = bytes.fromhex(access_pwd) if len(access_pwd) == 8 else b'\x00\x00\x00\x00'
+        params = pwd + struct.pack('>H', config_data & 0xFFFF)
+        cmd = self._build_frame(CMD_NXP_CHANGE_CONFIG, params)
+        self.serial.write(cmd)
+        time.sleep(0.3)
+        return True
+
+    def nxp_read_protect(self, access_pwd: str, is_reset: bool = False) -> bool:
+        """NXP G2X ReadProtect/ResetReadProtect (CMD_NXP_READPROTECT=0x24)"""
+        if not self.is_connected():
+            return False
+        pwd = bytes.fromhex(access_pwd) if len(access_pwd) == 8 else b'\x00\x00\x00\x00'
+        params = pwd + bytes([0x01 if is_reset else 0x00])
+        cmd = self._build_frame(CMD_NXP_READPROTECT, params)
+        self.serial.write(cmd)
+        time.sleep(0.3)
+        return True
+
+    def nxp_change_eas(self, access_pwd: str, is_set: bool = True) -> bool:
+        """NXP G2X ChangeEAS (CMD_NXP_CHANGE_EAS=0x25)"""
+        if not self.is_connected():
+            return False
+        pwd = bytes.fromhex(access_pwd) if len(access_pwd) == 8 else b'\x00\x00\x00\x00'
+        params = pwd + bytes([0x01 if is_set else 0x00])
+        cmd = self._build_frame(CMD_NXP_CHANGE_EAS, params)
+        self.serial.write(cmd)
+        time.sleep(0.3)
+        return True
+
+    def nxp_eas_alarm(self) -> bool:
+        """NXP G2X EAS Alarm (CMD_NXP_EAS_ALARM=0x26)"""
+        if not self.is_connected():
+            return False
+        cmd = self._build_frame(CMD_NXP_EAS_ALARM)
+        self.serial.write(cmd)
+        time.sleep(0.3)
+        return True
+
+    # ═══════════════════════════════════════════════════════
+    #  Monza QT (CMD_MONZA_QT_READ=0x27, CMD_MONZA_QT_WRITE=0x28)
+    # ═══════════════════════════════════════════════════════
+
+    def monza_qt(self, access_pwd: str, is_write: bool = False,
+                  qt_sr: bool = False, qt_mem: bool = False,
+                  is_persistence: bool = True) -> bool:
+        """Monza QT Read/Write"""
+        if not self.is_connected():
+            return False
+        pwd = bytes.fromhex(access_pwd) if len(access_pwd) == 8 else b'\x00\x00\x00\x00'
+        ctrl = 0
+        if qt_sr:
+            ctrl |= 0x80
+        if qt_mem:
+            ctrl |= 0x40
+        if is_persistence:
+            ctrl |= 0x20
+        params = pwd + bytes([ctrl])
+        cmd_code = CMD_MONZA_QT_WRITE if is_write else CMD_MONZA_QT_READ
+        cmd = self._build_frame(cmd_code, params)
+        self.serial.write(cmd)
+        time.sleep(0.3)
+        return True
+
+    # ═══════════════════════════════════════════════════════
     #  缓存与连续扫描
     # ═══════════════════════════════════════════════════════
 

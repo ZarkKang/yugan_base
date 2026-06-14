@@ -951,6 +951,35 @@ async function render_rfid_settings(el) {
             <div class="stat-item"><div class="stat-label">功率</div><div class="stat-value" id="rfs-power">- dBm</div></div>
             <div class="stat-item"><div class="stat-label">扫描状态</div><div class="stat-value" id="rfs-scanning">-</div></div>
         </div>
+
+        <!-- 串口连接面板 -->
+        <div class="panel" style="margin-bottom:12px;">
+            <div class="panel-header"><span>串口连接</span></div>
+            <div style="padding:16px;display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;">
+                <div class="field" style="min-width:160px;">
+                    <label>串口选择</label>
+                    <select id="rfs-port-select">
+                        <option value="">-- 点击扫描 --</option>
+                    </select>
+                </div>
+                <div class="field" style="min-width:120px;">
+                    <label>波特率</label>
+                    <select id="rfs-baudrate">
+                        <option value="115200">115200</option>
+                        <option value="9600">9600</option>
+                        <option value="57600">57600</option>
+                        <option value="38400">38400</option>
+                        <option value="19200">19200</option>
+                    </select>
+                </div>
+                <div style="display:flex;gap:8px;align-items:flex-end;">
+                    <button class="btn btn-ghost btn-sm" onclick="rfidScanPorts()">扫描串口</button>
+                    <button class="btn btn-primary btn-sm" id="rfs-btn-connect" onclick="rfidConnect()">连接</button>
+                    <button class="btn btn-outline btn-sm" id="rfs-btn-disconnect" onclick="rfidDisconnect()" style="display:none;">断开</button>
+                </div>
+            </div>
+        </div>
+
         <div class="col2">
             <!-- 左列: 基本设置 + Query参数 + 高级设置 -->
             <div>
@@ -1100,13 +1129,71 @@ async function rfidRefreshStatus() {
     try {
         const res = await api(`${API}/rfid/status`);
         const d = res.data;
-        document.getElementById('rfs-connected').textContent = d.connected ? '已连接' : '未连接';
-        document.getElementById('rfs-connected').className = 'stat-value ' + (d.connected ? 'c-green' : 'c-red');
+        const connected = d.connected;
+        document.getElementById('rfs-connected').textContent = connected ? '已连接' : '未连接';
+        document.getElementById('rfs-connected').className = 'stat-value ' + (connected ? 'c-green' : 'c-red');
         document.getElementById('rfs-port').textContent = d.port || '-';
         document.getElementById('rfs-power').textContent = (d.power_dbm ? d.power_dbm + ' dBm' : '-');
         document.getElementById('rfs-scanning').textContent = d.scanning ? '运行中' : '已停止';
         document.getElementById('rfs-scanning').className = 'stat-value ' + (d.scanning ? 'c-green' : '');
+        // 更新连接/断开按钮状态
+        document.getElementById('rfs-btn-connect').style.display = connected ? 'none' : '';
+        document.getElementById('rfs-btn-disconnect').style.display = connected ? '' : 'none';
+        if (connected && d.port) {
+            const sel = document.getElementById('rfs-port-select');
+            // 如果当前端口不在列表中，添加进去
+            if (![...sel.options].some(o => o.value === d.port)) {
+                const opt = document.createElement('option');
+                opt.value = d.port; opt.textContent = d.port; opt.selected = true;
+                sel.appendChild(opt);
+            } else {
+                sel.value = d.port;
+            }
+        }
     } catch(e) { /* ignore */ }
+}
+
+async function rfidScanPorts() {
+    try {
+        const res = await api(`${API}/rfid/ports`);
+        const ports = res.data?.ports || [];
+        const sel = document.getElementById('rfs-port-select');
+        const current = sel.value;
+        sel.innerHTML = '';
+        if (ports.length === 0) {
+            sel.innerHTML = '<option value="">未检测到串口</option>';
+            toast('未检测到可用串口，请检查硬件连接', 'warn');
+        } else {
+            ports.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p; opt.textContent = p;
+                sel.appendChild(opt);
+            });
+            // 恢复之前选中的端口
+            if (ports.includes(current)) sel.value = current;
+            else sel.value = ports[0];
+            toast(`发现 ${ports.length} 个串口: ${ports.join(', ')}`);
+        }
+    } catch(ex) { toast(ex.message, 'error'); }
+}
+
+async function rfidConnect() {
+    const port = document.getElementById('rfs-port-select').value;
+    if (!port) { toast('请先扫描并选择串口', 'warn'); return; }
+    const baudrate = parseInt(document.getElementById('rfs-baudrate').value);
+    try {
+        const r = await api(`${API}/rfid/connect`, {method:'POST', body:JSON.stringify({port, baudrate})});
+        toast(r.success ? 'RFID 已连接' : (r.message || '连接失败'));
+        setTimeout(rfidRefreshStatus, 500);
+    } catch(ex) { toast(ex.message, 'error'); }
+}
+
+async function rfidDisconnect() {
+    try {
+        const r = await api(`${API}/rfid/disconnect`, {method:'POST'});
+        toast(r.message);
+        rfidRefreshStatus();
+    } catch(ex) { toast(ex.message, 'error'); }
 }
 
 async function rfidSetRegion() {

@@ -137,10 +137,32 @@ check_environment() {
     fi
 
     # Docker
-    if command -v docker &>/dev/null && docker ps &>/dev/null; then
-        ok "Docker: 可用"
+    if command -v docker &>/dev/null; then
+        local docker_ver
+        docker_ver=$(docker --version 2>&1)
+        ok "Docker: $docker_ver"
+        if docker ps &>/dev/null 2>&1; then
+            ok "Docker 守护进程: 运行中"
+        else
+            warn "Docker 守护进程: 未运行 (请启动 Docker Desktop 或执行: sudo systemctl start docker)"
+        fi
+        # Docker Compose
+        if docker compose version &>/dev/null 2>&1; then
+            local compose_ver
+            compose_ver=$(docker compose version 2>&1)
+            ok "Docker Compose: $compose_ver"
+        elif command -v docker-compose &>/dev/null; then
+            local compose_ver
+            compose_ver=$(docker-compose --version 2>&1)
+            ok "Docker Compose (v1): $compose_ver"
+        else
+            warn "Docker Compose: 未安装 (Docker Compose v2 已内置在 Docker Desktop 中)"
+        fi
     else
-        warn "Docker: 不可用"
+        error "Docker: 未安装"
+        echo -e "  ${YELLOW}→ 下载 Docker Desktop:${NC} https://www.docker.com/products/docker-desktop/"
+        echo -e "  ${YELLOW}→ Linux 命令行安装:${NC} curl -fsSL https://get.docker.com | sudo sh"
+        echo -e "  ${YELLOW}→ 安装后需将用户加入 docker 组:${NC} sudo usermod -aG docker \$USER"
     fi
 
     # libzbar0
@@ -632,9 +654,21 @@ show_system_info() {
     echo -e "${CYAN}--- Docker ---${NC}"
     if command -v docker &>/dev/null; then
         echo "  版本: $(docker --version 2>&1)"
-        docker ps &>/dev/null && echo "  状态: 可用" || echo "  状态: 不可用"
+        if docker ps &>/dev/null 2>&1; then
+            echo "  守护进程: 运行中"
+            echo "  容器数量: $(docker ps -q 2>/dev/null | wc -l)"
+        else
+            echo "  守护进程: 已停止"
+        fi
+        if docker compose version &>/dev/null 2>&1; then
+            echo "  Compose: $(docker compose version 2>&1 | head -1)"
+        elif command -v docker-compose &>/dev/null; then
+            echo "  Compose: $(docker-compose --version 2>&1)"
+        fi
     else
         echo "  未安装"
+        echo "  → 下载: https://www.docker.com/products/docker-desktop/"
+        echo "  → 或: curl -fsSL https://get.docker.com | sudo sh"
     fi
     echo ""
 
@@ -652,6 +686,170 @@ show_system_info() {
     done
 }
 
+# ── 数据库管理子菜单 ────────────────────────────
+db_menu() {
+    while true; do
+        echo ""
+        echo -e "${BOLD}>> 数据库管理${NC}"
+        echo ""
+        # 显示数据库状态
+        if pg_isready -h localhost -p 5432 &>/dev/null 2>&1; then
+            ok "PostgreSQL: 运行中"
+        else
+            warn "PostgreSQL: 已停止"
+        fi
+        if command -v redis-cli &>/dev/null && redis-cli ping &>/dev/null 2>&1; then
+            ok "Redis: 运行中"
+        else
+            warn "Redis: 已停止"
+        fi
+        echo ""
+        local opt
+        opt=$(menu_select "请选择 [1-9]: " \
+            "启动 PostgreSQL" \
+            "停止 PostgreSQL" \
+            "重启 PostgreSQL" \
+            "启动 Redis" \
+            "停止 Redis" \
+            "重启 Redis" \
+            "打开数据库Shell" \
+            "查看数据库表" \
+            "返回主菜单")
+        [ $? -ne 0 ] && continue
+        case "$opt" in
+            "启动 PostgreSQL")    db_start_pg ;;
+            "停止 PostgreSQL")    db_stop_pg ;;
+            "重启 PostgreSQL")    db_restart_pg ;;
+            "启动 Redis")         db_start_redis ;;
+            "停止 Redis")         db_stop_redis ;;
+            "重启 Redis")         db_restart_redis ;;
+            "打开数据库Shell")     db_shell ;;
+            "查看数据库表")       db_list_tables ;;
+            "返回主菜单")         return ;;
+        esac
+    done
+}
+
+db_start_pg() {
+    info "启动 PostgreSQL..."
+    if sudo service postgresql start 2>/dev/null; then
+        ok "PostgreSQL 已启动"
+    else
+        sudo pg_ctlcluster $(pg_lsclusters -h 2>/dev/null | head -1 | awk '{print $1, $2}') start 2>/dev/null && ok "PostgreSQL 已启动" || error "启动失败"
+    fi
+    press_enter
+}
+
+db_stop_pg() {
+    if ! confirm "确定要停止 PostgreSQL 吗？"; then
+        warn "已取消"; return
+    fi
+    info "停止 PostgreSQL..."
+    if sudo service postgresql stop 2>/dev/null; then
+        ok "PostgreSQL 已停止"
+    else
+        sudo pg_ctlcluster $(pg_lsclusters -h 2>/dev/null | head -1 | awk '{print $1, $2}') stop 2>/dev/null && ok "PostgreSQL 已停止" || error "停止失败"
+    fi
+    press_enter
+}
+
+db_restart_pg() {
+    info "重启 PostgreSQL..."
+    if sudo service postgresql restart 2>/dev/null; then
+        ok "PostgreSQL 已重启"
+    else
+        sudo pg_ctlcluster $(pg_lsclusters -h 2>/dev/null | head -1 | awk '{print $1, $2}') restart 2>/dev/null && ok "PostgreSQL 已重启" || error "重启失败"
+    fi
+    press_enter
+}
+
+db_start_redis() {
+    info "启动 Redis..."
+    if sudo service redis-server start 2>/dev/null; then
+        ok "Redis 已启动"
+    else
+        sudo redis-server --daemonize yes 2>/dev/null && ok "Redis 已启动" || error "启动失败"
+    fi
+    press_enter
+}
+
+db_stop_redis() {
+    if ! confirm "确定要停止 Redis 吗？"; then
+        warn "已取消"; return
+    fi
+    info "停止 Redis..."
+    if sudo service redis-server stop 2>/dev/null; then
+        ok "Redis 已停止"
+    else
+        redis-cli shutdown 2>/dev/null && ok "Redis 已停止" || error "停止失败"
+    fi
+    press_enter
+}
+
+db_restart_redis() {
+    info "重启 Redis..."
+    sudo service redis-server restart 2>/dev/null && ok "Redis 已重启" || \
+        (redis-cli shutdown 2>/dev/null; sudo redis-server --daemonize yes 2>/dev/null && ok "Redis 已重启" || error "重启失败")
+    press_enter
+}
+
+db_shell() {
+    echo -e "${BOLD}数据库 Shell${NC}"
+    echo ""
+    if ! pg_isready -h localhost -p 5432 &>/dev/null; then
+        error "PostgreSQL 未运行，请先启动"; press_enter; return
+    fi
+
+    echo "输入数据库名称 (默认: warehouse_inspection):"
+    read -r dbname
+    dbname="${dbname:-warehouse_inspection}"
+
+    echo ""
+    echo -e "${CYAN}已连接到: $dbname${NC}"
+    echo -e "${CYAN}可用命令:${NC}"
+    echo "  \\dt          - 列出所有表"
+    echo "  \\d 表名      - 查看表结构"
+    echo "  SELECT ...   - 查询数据"
+    echo "  \\q           - 退出"
+    echo ""
+
+    sudo -u postgres psql -d "$dbname"
+    press_enter
+}
+
+db_list_tables() {
+    echo -e "${BOLD}数据库表列表${NC}"
+    echo ""
+    if ! pg_isready -h localhost -p 5432 &>/dev/null; then
+        error "PostgreSQL 未运行，请先启动"; press_enter; return
+    fi
+
+    local dbname="${1:-warehouse_inspection}"
+
+    echo -e "${CYAN}--- ${dbname} 数据库 ---${NC}"
+    echo ""
+
+    # 无人机数据系统 (SQLite)
+    local sqlite_db="$SCRIPT_DIR/drone-db-prototype/backend/yugan.db"
+    if [ -f "$sqlite_db" ]; then
+        echo -e "${CYAN}--- drone-db-prototype (SQLite) ---${NC}"
+        if command -v sqlite3 &>/dev/null; then
+            sqlite3 "$sqlite_db" ".tables" 2>/dev/null && echo ""
+        else
+            warn "sqlite3 未安装，无法查看"
+        fi
+    else
+        warn "SQLite 数据库文件不存在: $sqlite_db"
+    fi
+
+    echo -e "${CYAN}--- warehouse-inspection (PostgreSQL) ---${NC}"
+    sudo -u postgres psql -d "$dbname" -c "\dt" 2>/dev/null || warn "无法连接数据库"
+
+    echo ""
+    info "提示: 使用「打开数据库Shell」功能可执行 SQL 查询"
+    press_enter
+}
+
 # ── 主菜单 ────────────────────────────────────
 main_menu() {
     while true; do
@@ -659,16 +857,18 @@ main_menu() {
         echo ""
         echo "  1) 环境部署"
         echo "  2) 服务管理"
-        echo "  3) 功能测试"
-        echo "  4) 系统维护"
-        echo "  5) 系统信息"
-        echo "  6) 退出"
+        echo "  3) 数据库管理"
+        echo "  4) 功能测试"
+        echo "  5) 系统维护"
+        echo "  6) 系统信息"
+        echo "  7) 退出"
         echo ""
 
         local opt
-        opt=$(menu_select "请选择 [1-6]: " \
+        opt=$(menu_select "请选择 [1-7]: " \
             "环境部署" \
             "服务管理" \
+            "数据库管理" \
             "功能测试" \
             "系统维护" \
             "系统信息" \
@@ -677,6 +877,7 @@ main_menu() {
         case "$opt" in
             "环境部署") deploy_menu ;;
             "服务管理") service_menu ;;
+            "数据库管理") db_menu ;;
             "功能测试") test_menu ;;
             "系统维护") maintenance_menu ;;
             "系统信息") show_system_info; press_enter ;;

@@ -50,6 +50,16 @@ EPC 解析公式：`pc_byte0 = params[1]`, `epc_len = ((pc_byte0 // 8) + 1) * 2 
 - WSL 环境不支持 pyserial，需用 fd 直接打开 `/dev/ttyS*`，`select.select()` 做非阻塞读。
 - 入库服务的 `_on_tag_detected` 回调在后台线程中执行，需自行创建 `SessionLocal()` 管理数据库会话，**不能使用 FastAPI 的 `get_db` 依赖注入**。
 - Python 环境未安装或不在 PATH 时，`pytest` 无法直接从命令行运行。
+- drone-db-prototype 所有路由强制 JWT 认证（`OAuth2PasswordBearer`），前端必须通过 `POST /api/auth/login` 获取 token 后存入 localStorage，否则所有请求返回 401。
+- warehouse-inspection-system 路由不强制认证，但前端同样配了自动登录机制以保持一致。
+- 默认管理员账号: `admin / admin123`（需确认 seed 数据已创建）。
+
+## RFID 连接故障排查速查
+1. `GET /api/v1/rfid/diagnose` — 诊断端点，检查 pyserial、串口列表、连接状态
+2. CP2102 驱动下载: https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers
+3. PRE 模块默认波特率 115200，auto_detect 会依次尝试 [115200,9600,38400,19200,57600]
+4. WSL 下串口路径 `/dev/ttyS<N>`，Windows 下为 `COM<N>`
+5. 常见失败: 模块未通电 / CP2102 驱动未装 / COM 口被 Demo 软件占用
 
 ## 入库流程
 ```

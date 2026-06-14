@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 from ..db.database import get_db
 from ..models.models import (
     Drone, Task, Waypoint, ImageRecord,
-    InventoryItem, InspectionReport, TaskStatus
+    InventoryItem, InspectionReport, TaskStatus,
+    InspectionRecord, InspectionStatus, Shelf,
 )
 from ..schemas.schemas import (
     InspectionRecordCreate, InspectionRecordUpdate,
@@ -29,8 +30,36 @@ router = APIRouter(tags=["巡检管理"])
 @router.post("/inspection/records", response_model=APIResponse)
 def create_record(record: InspectionRecordCreate, db: Session = Depends(get_db)):
     """创建巡检记录"""
-    # TODO: 完善业务逻辑
-    return APIResponse(success=True, message="创建成功")
+    # 验证无人机
+    drone = db.query(Drone).filter(Drone.id == record.drone_id).first()
+    if not drone:
+        raise HTTPException(status_code=404, detail="无人机不存在")
+
+    # 验证货架（如果提供）
+    if record.shelf_id:
+        shelf = db.query(Shelf).filter(Shelf.id == record.shelf_id).first()
+        if not shelf:
+            raise HTTPException(status_code=404, detail="货架不存在")
+
+    new_record = InspectionRecord(
+        record_code=record.record_code,
+        drone_id=record.drone_id,
+        shelf_id=record.shelf_id,
+        rfid_tag_id=record.rfid_tag_id,
+        status=InspectionStatus.PENDING,
+        qr_code_data=record.qr_code_data,
+        rfid_data=record.rfid_data,
+        image_path=record.image_path,
+        inspection_time=datetime.utcnow(),
+    )
+    db.add(new_record)
+    db.commit()
+    db.refresh(new_record)
+
+    return APIResponse(success=True, message="创建成功", data={
+        "id": new_record.id,
+        "record_code": new_record.record_code,
+    })
 
 
 @router.get("/inspection/records", response_model=PaginatedResponse)
@@ -39,32 +68,78 @@ def list_records(
     page_size: int = Query(20, ge=1, le=100),
     status: Optional[str] = None,
     drone_id: Optional[int] = None,
+    task_code: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """获取巡检记录列表"""
-    # TODO: 完善分页查询
-    return PaginatedResponse(total=0, page=page, page_size=page_size, items=[])
+    query = db.query(InspectionRecord)
+    if status:
+        query = query.filter(InspectionRecord.status == status)
+    if drone_id:
+        query = query.filter(InspectionRecord.drone_id == drone_id)
+    if task_code:
+        query = query.filter(InspectionRecord.record_code.like(f"%{task_code}%"))
+
+    total = query.count()
+    records = query.order_by(InspectionRecord.created_at.desc()).offset((page-1)*page_size).limit(page_size).all()
+
+    items = []
+    for r in records:
+        items.append({
+            "id": r.id,
+            "record_code": r.record_code,
+            "drone_id": r.drone_id,
+            "shelf_id": r.shelf_id,
+            "status": r.status.value if hasattr(r.status, 'value') else str(r.status),
+            "qr_code_data": r.qr_code_data,
+            "rfid_data": r.rfid_data,
+            "image_path": r.image_path,
+            "is_matched": r.is_matched,
+            "mismatch_reason": r.mismatch_reason,
+            "inspection_time": r.inspection_time.isoformat() if r.inspection_time else None,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        })
+
+    return PaginatedResponse(total=total, page=page, page_size=page_size, items=items)
 
 
 @router.get("/inspection/records/{record_id}", response_model=InspectionRecordResponse)
 def get_record(record_id: int, db: Session = Depends(get_db)):
     """获取巡检记录详情"""
-    # TODO: 完善查询
-    raise HTTPException(status_code=404, detail="记录不存在")
+    record = db.query(InspectionRecord).filter(InspectionRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="记录不存在")
+    return record
 
 
 @router.patch("/inspection/records/{record_id}", response_model=APIResponse)
 def update_record(record_id: int, update: InspectionRecordUpdate, db: Session = Depends(get_db)):
     """更新巡检记录"""
-    # TODO: 完善更新
-    return APIResponse(success=True, message="更新成功")
+    record = db.query(InspectionRecord).filter(InspectionRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="记录不存在")
+
+    update_data = update.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(record, key, value)
+    db.commit()
+    db.refresh(record)
+
+    return APIResponse(success=True, message="更新成功", data={"id": record.id})
 
 
 @router.delete("/inspection/records/{record_id}", response_model=APIResponse)
 def delete_record(record_id: int, db: Session = Depends(get_db)):
-    """删除巡检记录"""
-    # TODO: 完善删除
-    return APIResponse(success=True, message="删除成功")
+    """删除巡检记录（软删除标记）"""
+    record = db.query(InspectionRecord).filter(InspectionRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="记录不存在")
+
+    record.status = InspectionStatus.ABNORMAL
+    record.mismatch_reason = "已删除"
+    db.commit()
+
+    return APIResponse(success=True, message="删除成功（软删除）")
 
 
 # ========== 无人机端接口 ==========

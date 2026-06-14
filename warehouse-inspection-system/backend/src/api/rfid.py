@@ -1,5 +1,6 @@
 """
 RFID API路由 - 读取/写入标签数据 (PRE系列 UHF 模块)
+  GET  /api/v1/rfid/diagnose       诊断RFID连接环境
   GET  /api/v1/rfid/status         检查RFID连接状态
   POST /api/v1/rfid/connect        连接/重连RFID
   POST /api/v1/rfid/read           单次读取标签
@@ -16,15 +17,103 @@ RFID API路由 - 读取/写入标签数据 (PRE系列 UHF 模块)
   POST /api/v1/rfid/region         设置工作地区
 """
 import logging
+import sys
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional, List
 
 from ..hardware.rfid_reader import get_rfid_reader, RFIDTag
+from ..hardware.serial import list_available_ports
 from ..schemas.schemas import APIResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/rfid", tags=["RFID"])
+
+
+# ═══════════════════════════════════════════════════════════
+#  诊断端点
+# ═══════════════════════════════════════════════════════════
+
+@router.get("/diagnose")
+def diagnose():
+    """诊断RFID连接环境 — 检测串口、驱动和模块状态"""
+    diagnostic = {
+        "success": True,
+        "data": {
+            "platform": sys.platform,
+            "pyserial_available": False,
+            "serial_ports": [],
+            "reader_connected": False,
+            "reader_scanning": False,
+            "connection_info": {},
+            "issues": [],
+        }
+    }
+
+    # 1. 检查 pyserial
+    try:
+        import serial
+        diagnostic["data"]["pyserial_available"] = True
+    except ImportError:
+        diagnostic["data"]["issues"].append({
+            "level": "critical",
+            "msg": "pyserial 未安装，请执行: pip install pyserial",
+        })
+
+    # 2. 列出串口
+    try:
+        ports = list_available_ports()
+        diagnostic["data"]["serial_ports"] = ports
+        if not ports:
+            diagnostic["data"]["issues"].append({
+                "level": "warning",
+                "msg": "未检测到任何串口。请检查: (1) RFID模块电源指示灯 (2) USB线是否插紧 (3) CP2102驱动是否安装",
+            })
+    except Exception as e:
+        diagnostic["data"]["issues"].append({
+            "level": "error",
+            "msg": f"无法检测串口: {e}",
+        })
+
+    # 3. 检查RFID读卡器状态
+    try:
+        reader = get_rfid_reader()
+        diagnostic["data"]["reader_connected"] = reader.is_connected()
+        diagnostic["data"]["reader_scanning"] = reader._running
+        diagnostic["data"]["connection_info"] = reader.get_connection_info()
+        if not reader.is_connected():
+            diagnostic["data"]["issues"].append({
+                "level": "info",
+                "msg": "RFID读卡器未连接。调用 POST /rfid/connect 或 POST /rfid/connect?port=COM3 连接",
+            })
+    except Exception as e:
+        diagnostic["data"]["issues"].append({
+            "level": "error",
+            "msg": f"RFID读卡器异常: {e}",
+        })
+
+    # 4. 平台特定提示
+    if sys.platform == "win32":
+        diagnostic["data"]["issues"].append({
+            "level": "info",
+            "msg": "Windows系统: 请确认设备管理器中有 COM 端口且无黄色感叹号。CP2102驱动: https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers",
+        })
+    elif "linux" in sys.platform:
+        diagnostic["data"]["issues"].append({
+            "level": "info",
+            "msg": "Linux系统: 请确认 /dev/ttyUSB* 存在且有读写权限 (sudo chmod 666 /dev/ttyUSB0)",
+        })
+
+    return diagnostic
+
+
+@router.get("/ports")
+def list_ports():
+    """扫描可用串口列表"""
+    try:
+        ports = list_available_ports()
+        return APIResponse(success=True, data={"ports": ports})
+    except Exception as e:
+        return APIResponse(success=False, message=f"扫描串口失败: {e}", data={"ports": []})
 
 
 class RFIDConnectRequest(BaseModel):
@@ -59,6 +148,14 @@ def connect_rfid(req: RFIDConnectRequest):
         return APIResponse(success=True, message="RFID已连接", data=info)
     else:
         return APIResponse(success=False, message="RFID连接失败，请检查硬件和串口", data=info)
+
+
+@router.post("/disconnect")
+def disconnect_rfid():
+    """断开RFID读卡器连接"""
+    reader = get_rfid_reader()
+    reader.disconnect()
+    return APIResponse(success=True, message="RFID已断开连接")
 
 
 @router.post("/read")
@@ -227,3 +324,388 @@ def set_region(req: RegionRequest):
             raise HTTPException(status_code=503, detail="RFID未连接")
     reader.set_region(req.region)
     return APIResponse(success=True, message=f"地区已设为 0x{req.region:02X}")
+
+
+# ═══════════════════════════════════════════════════════════
+#  PRE 模块完整设置端点（对齐 PC 上位机全部功能）
+# ═══════════════════════════════════════════════════════════
+
+class FHSSRequest(BaseModel):
+    on: bool = Field(..., description="FHSS开关: true=开, false=关")
+
+
+class CWRequest(BaseModel):
+    on: bool = Field(..., description="CW载波: true=开, false=关")
+
+
+class ChannelRequest(BaseModel):
+    channel: int = Field(..., description="RF信道编号")
+
+
+class ModemRequest(BaseModel):
+    mixer_gain: int = Field(3, ge=0, le=7, description="混频器增益 0-7")
+    if_gain: int = Field(6, ge=0, le=7, description="中频增益 0-7")
+    signal_threshold: int = Field(120, description="解码阈值")
+
+
+class SelectRequest(BaseModel):
+    target: int = Field(4, description="S0(0)/S1(1)/S2(2)/S3(3)/SL(4)")
+    action: int = Field(0, description="Action, 参考ISO18000-6C")
+    mem_bank: int = Field(1, description="0=RFU, 1=EPC, 2=TID, 3=USR")
+    pointer: int = Field(32, description="起始地址(32bit)")
+    mask_len: int = Field(0, description="Mask长度(bit)")
+    mask: str = Field("", description="Mask数据(hex)")
+    truncated: int = Field(0, description="0=禁用, 1=启用Truncate")
+
+
+class InventoryModeRequest(BaseModel):
+    mode: int = Field(..., ge=0, le=2, description="0=每次发Select, 1=不发, 2=除盘存外发")
+
+
+class EnvModeRequest(BaseModel):
+    mode: int = Field(..., ge=0, le=1, description="0=高灵敏, 1=密集读卡器")
+
+
+class NVConfigRequest(BaseModel):
+    enable: bool = Field(True, description="true=启用NV配置, false=禁用(擦除)")
+
+
+class SleepTimeRequest(BaseModel):
+    minutes: int = Field(..., ge=0, le=255, description="空闲休眠时间(分钟)")
+
+
+class IOControlRequest(BaseModel):
+    opt_type: int = Field(..., description="0=设置方向, 1=设置电平, 2=读取电平")
+    io_port: int = Field(..., ge=1, le=4, description="IO端口 1-4")
+    mode_or_level: int = Field(0, description="opt=0时: 0=输入,1=输出; opt=1时: 0=低,1=高")
+
+
+class NXPConfigRequest(BaseModel):
+    access_pwd: str = Field("00000000", description="访问密码(hex, 8字符)")
+    config_data: int = Field(..., description="16位Config数据(要置1的位)")
+
+
+class NXPReadProtectRequest(BaseModel):
+    access_pwd: str = Field("00000000", description="访问密码(hex, 8字符)")
+    is_reset: bool = Field(False, description="true=ResetReadProtect, false=ReadProtect")
+
+
+class NXPEASRequest(BaseModel):
+    access_pwd: str = Field("00000000", description="访问密码(hex, 8字符)")
+    is_set: bool = Field(True, description="true=Set PSF, false=Reset PSF")
+
+
+class MonzaQTRequest(BaseModel):
+    access_pwd: str = Field("00000000", description="访问密码(hex, 8字符)")
+    is_write: bool = Field(False, description="false=QT Read, true=QT Write")
+    qt_sr: bool = Field(False, description="true=缩短距离, false=正常距离")
+    qt_mem: bool = Field(False, description="true=Public Memory, false=Private Memory")
+    is_persistence: bool = Field(True, description="true=写入NV, false=仅volatile")
+
+
+# ── 模块信息 ──────────────────────────────────────────────
+
+@router.get("/info")
+def get_module_info():
+    """获取模块信息(硬件版本/软件版本/厂商)"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    info = reader.get_module_info()
+    return APIResponse(success=info is not None, data={"module_info": info})
+
+
+# ── FHSS / CW ─────────────────────────────────────────────
+
+@router.post("/fhss")
+def set_fhss(req: FHSSRequest):
+    """设置FHSS跳频开关"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.set_fhss(req.on)
+    return APIResponse(success=True, message=f"FHSS已{'开启' if req.on else '关闭'}")
+
+
+@router.post("/cw")
+def set_cw(req: CWRequest):
+    """设置CW载波开关"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.set_cw(req.on)
+    return APIResponse(success=True, message=f"CW载波已{'开启' if req.on else '关闭'}")
+
+
+# ── RF 信道 ────────────────────────────────────────────────
+
+@router.post("/channel")
+def set_channel(req: ChannelRequest):
+    """设置RF信道"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.set_rf_channel(req.channel)
+    return APIResponse(success=True, message=f"RF信道已设为 {req.channel}")
+
+
+@router.get("/channel")
+def get_channel():
+    """获取当前RF信道"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        raise HTTPException(status_code=503, detail="RFID未连接")
+    ch = reader.get_rf_channel()
+    return APIResponse(success=ch is not None, data={"channel": ch})
+
+
+# ── Modem 参数 ─────────────────────────────────────────────
+
+@router.post("/modem")
+def set_modem(req: ModemRequest):
+    """设置Modem参数"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.set_modem_params(
+        mixer_gain=req.mixer_gain,
+        if_gain=req.if_gain,
+        signal_threshold=req.signal_threshold,
+    )
+    return APIResponse(success=True, message="Modem参数已更新")
+
+
+@router.get("/modem")
+def get_modem():
+    """读取Modem参数"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        raise HTTPException(status_code=503, detail="RFID未连接")
+    params = reader.get_modem_params()
+    return APIResponse(success=params is not None, data=params)
+
+
+# ── Select 参数 ────────────────────────────────────────────
+
+@router.post("/select")
+def set_select(req: SelectRequest):
+    """设置ISO18000-6C Select参数"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    mask_bytes = bytes.fromhex(req.mask) if req.mask else b''
+    reader.set_select_params(
+        target=req.target, action=req.action, mem_bank=req.mem_bank,
+        pointer=req.pointer, mask_len=req.mask_len, mask=mask_bytes,
+        truncated=req.truncated,
+    )
+    return APIResponse(success=True, message="Select参数已更新")
+
+
+@router.get("/select")
+def get_select():
+    """获取Select参数"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        raise HTTPException(status_code=503, detail="RFID未连接")
+    params = reader.get_select_params()
+    return APIResponse(success=params is not None, data=params)
+
+
+# ── 盘存模式 / 环境模式 ────────────────────────────────────
+
+@router.post("/mode")
+def set_inventory_mode(req: InventoryModeRequest):
+    """设置盘存模式"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.set_inventory_mode(req.mode)
+    mode_names = {0: "每条命令前发Select", 1: "不发Select", 2: "除盘存外发Select"}
+    return APIResponse(success=True, message=f"盘存模式已设为: {mode_names.get(req.mode, str(req.mode))}")
+
+
+@router.post("/env")
+def set_env_mode(req: EnvModeRequest):
+    """设置读卡器环境模式"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.set_reader_env_mode(req.mode)
+    env_names = {0: "高灵敏模式", 1: "密集读卡器模式"}
+    return APIResponse(success=True, message=f"环境模式已设为: {env_names.get(req.mode, str(req.mode))}")
+
+
+# ── NV 配置 ────────────────────────────────────────────────
+
+@router.post("/nv/save")
+def save_nv_config(req: NVConfigRequest):
+    """保存配置到NV Memory"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.save_config_to_nv(req.enable)
+    if req.enable:
+        return APIResponse(success=True, message="配置已保存到NV Memory，下次上电自动加载")
+    else:
+        return APIResponse(success=True, message="NV配置已禁用并擦除")
+
+
+@router.post("/nv/load")
+def load_nv_config():
+    """从NV Memory加载配置"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.load_config_from_nv()
+    return APIResponse(success=True, message="已从NV Memory加载配置")
+
+
+# ── 休眠 ───────────────────────────────────────────────────
+
+@router.post("/sleep")
+def module_sleep():
+    """设置模块立即休眠"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.module_sleep()
+    return APIResponse(success=True, message="模块已进入休眠模式")
+
+
+@router.post("/sleep/time")
+def set_sleep_time(req: SleepTimeRequest):
+    """设置空闲休眠时间"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.set_sleep_time(req.minutes)
+    return APIResponse(success=True, message=f"空闲休眠时间已设为 {req.minutes} 分钟")
+
+
+# ── 重启 ───────────────────────────────────────────────────
+
+@router.post("/restart")
+def restart_module():
+    """重启RFID模块"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.scanner_restart()
+    return APIResponse(success=True, message="模块重启指令已发送")
+
+
+# ── IO 控制 ────────────────────────────────────────────────
+
+@router.post("/io")
+def io_control(req: IOControlRequest):
+    """IO控制"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.io_control(req.opt_type, req.io_port, req.mode_or_level)
+    return APIResponse(success=True, message="IO控制指令已发送")
+
+
+# ── 干扰扫描 / RSSI ────────────────────────────────────────
+
+@router.post("/jammer")
+def scan_jammer():
+    """扫描干扰"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.scan_jammer()
+    return APIResponse(success=True, message="干扰扫描已启动")
+
+
+@router.post("/rssi")
+def scan_rssi():
+    """扫描RSSI"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.scan_rssi()
+    return APIResponse(success=True, message="RSSI扫描已启动")
+
+
+# ── NXP G2X 特殊指令 ───────────────────────────────────────
+
+@router.post("/nxp/config")
+def nxp_change_config(req: NXPConfigRequest):
+    """NXP G2X ChangeConfig"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    pwd = req.access_pwd if req.access_pwd else "00000000"
+    reader.nxp_change_config(pwd, req.config_data)
+    return APIResponse(success=True, message="NXP ChangeConfig已发送")
+
+
+@router.post("/nxp/readprotect")
+def nxp_read_protect(req: NXPReadProtectRequest):
+    """NXP G2X ReadProtect / ResetReadProtect"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    pwd = req.access_pwd if req.access_pwd else "00000000"
+    reader.nxp_read_protect(pwd, req.is_reset)
+    msg = "ResetReadProtect" if req.is_reset else "ReadProtect"
+    return APIResponse(success=True, message=f"NXP {msg}已发送")
+
+
+@router.post("/nxp/eas")
+def nxp_change_eas(req: NXPEASRequest):
+    """NXP G2X ChangeEAS"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    pwd = req.access_pwd if req.access_pwd else "00000000"
+    reader.nxp_change_eas(pwd, req.is_set)
+    msg = "Set PSF" if req.is_set else "Reset PSF"
+    return APIResponse(success=True, message=f"NXP ChangeEAS ({msg})已发送")
+
+
+@router.post("/nxp/alarm")
+def nxp_eas_alarm():
+    """NXP G2X EAS Alarm"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    reader.nxp_eas_alarm()
+    return APIResponse(success=True, message="NXP EAS Alarm已发送")
+
+
+# ── Monza QT ───────────────────────────────────────────────
+
+@router.post("/monza/qt")
+def monza_qt(req: MonzaQTRequest):
+    """Monza QT Read/Write"""
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+    pwd = req.access_pwd if req.access_pwd else "00000000"
+    reader.monza_qt(pwd, req.is_write, req.qt_sr, req.qt_mem, req.is_persistence)
+    msg = "QT Write" if req.is_write else "QT Read"
+    return APIResponse(success=True, message=f"Monza {msg}已发送")
