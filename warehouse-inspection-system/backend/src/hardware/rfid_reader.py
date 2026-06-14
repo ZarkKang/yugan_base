@@ -5,6 +5,7 @@ RFID读卡器模块 — PRE系列超高频RFID一体化模块
 默认波特率: 115200 (模块默认), 也支持 9600
 """
 import struct
+import os
 import time
 import logging
 import threading
@@ -264,6 +265,17 @@ class RFIDReader:
 
     def auto_detect(self) -> Optional[str]:
         """自动探测 PRE RFID读卡器"""
+        # Docker 容器模式: 优先使用 RFID_SERIAL_PORT 环境变量
+        env_port = os.environ.get("RFID_SERIAL_PORT", "")
+        if env_port and env_port != "/dev/null":
+            for baud in self.COMMON_BAUDRATES:
+                if self._try_port(env_port, baud):
+                    self._auto_detected_port = env_port
+                    logger.info(f"[RFID] 探测成功(Docker): {env_port} @ {baud}")
+                    return env_port
+            logger.warning(f"[RFID] 环境变量指定端口 {env_port} 探测失败")
+            return None
+
         logger.info("[RFID] 开始自动探测PRE模块...")
         ports = list_available_ports()
         logger.info(f"[RFID] 可用串口: {ports}")

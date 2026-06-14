@@ -315,6 +315,134 @@ check_all_status() {
     return 0
 }
 
+# ── RFID 串口设备检测 ────────────────────────
+
+# 检查并修复串口设备权限
+check_rfid_permissions() {
+    local device="$1"
+
+    # 1. 检查设备读写权限
+    if [ -n "$device" ] && [ -e "$device" ]; then
+        if [ -r "$device" ] && [ -w "$device" ]; then
+            ok "设备权限正常: $device (可读写)"
+        else
+            warn "设备权限不足: $device"
+            echo -e "  ${YELLOW}尝试修复权限...${NC}"
+            if sudo -n true 2>/dev/null; then
+                sudo chmod 666 "$device" 2>/dev/null && ok "权限已修复" || warn "自动修复失败，请手动执行: sudo chmod 666 $device"
+            else
+                echo -e "  ${YELLOW}请手动执行:${NC} sudo chmod 666 $device"
+            fi
+        fi
+    fi
+
+    # 2. 检查用户是否在 dialout 组 (Linux 专属)
+    if [ "$(uname -s)" = "Linux" ]; then
+        if groups "$USER" 2>/dev/null | grep -q dialout; then
+            ok "用户已在 dialout 组"
+        else
+            warn "用户不在 dialout 组 (串口设备可能无法访问)"
+            echo ""
+            echo -e "  ${YELLOW}是否将当前用户加入 dialout 组?${NC}"
+            echo "  此操作需要 sudo 权限，完成后需重新登录才能生效。"
+            echo ""
+            read -p "  执行? [Y/n] " -r reply
+            if [ "$reply" != "n" ] && [ "$reply" != "N" ]; then
+                if sudo -n true 2>/dev/null; then
+                    sudo usermod -aG dialout "$USER" && ok "已加入 dialout 组 (请重新登录后生效)" || error "加入 dialout 组失败"
+                else
+                    echo -e "  ${YELLOW}请输入 sudo 密码:${NC}"
+                    sudo usermod -aG dialout "$USER" 2>/dev/null && ok "已加入 dialout 组 (请重新登录后生效)" || error "加入 dialout 组失败"
+                fi
+            else
+                info "跳过。如需手动执行: sudo usermod -aG dialout \$USER"
+            fi
+        fi
+    fi
+
+    # 3. 检查 Docker 用户组权限 (如果使用 Docker 模式)
+    if command -v docker &>/dev/null; then
+        if groups "$USER" 2>/dev/null | grep -q docker; then
+            ok "用户已在 docker 组"
+        else
+            warn "用户不在 docker 组 (启动 Docker 需要 sudo)"
+            echo -e "  ${YELLOW}手动执行:${NC} sudo usermod -aG docker \$USER"
+        fi
+    fi
+}
+
+detect_rfid_device() {
+    echo ""
+    echo -e "${CYAN}========================================${NC}"
+    echo -e "${CYAN}    检测 RFID 串口设备${NC}"
+    echo -e "${CYAN}========================================${NC}"
+
+    local detected=""
+
+    # 1. 检查环境变量中已配置的路径
+    if [ -n "${RFID_DEVICE:-}" ]; then
+        if [ -e "$RFID_DEVICE" ]; then
+            ok "RFID 设备已配置且存在: $RFID_DEVICE"
+            return 0
+        else
+            warn "RFID_DEVICE 指向的路径不存在: $RFID_DEVICE"
+        fi
+    fi
+
+    # 2. 自动探测常见串口
+    local candidates=()
+    for dev in /dev/ttyUSB* /dev/ttyACM* /dev/ttyS*; do
+        [ -e "$dev" ] && candidates+=("$dev")
+    done
+
+    if [ ${#candidates[@]} -eq 0 ]; then
+        warn "未检测到任何串口设备"
+        echo ""
+        echo -e "  ${YELLOW}请手动配置 .env 文件中的 RFID_DEVICE 变量:${NC}"
+        echo "    Linux:  RFID_DEVICE=/dev/ttyUSB0"
+        if is_wsl; then
+            echo "    WSL:    RFID_DEVICE=/dev/ttyS6  (COM7 映射)"
+        fi
+        echo "    不启用: RFID_DEVICE= (留空)"
+        return 0
+    fi
+
+    echo ""
+    echo "  检测到以下串口设备:"
+    for dev in "${candidates[@]}"; do
+        echo "    $dev"
+    done
+    echo ""
+
+    # 自动选择第一个 /dev/ttyUSB 或 /dev/ttyACM
+    for dev in "${candidates[@]}"; do
+        if [[ "$dev" =~ /dev/ttyUSB|/dev/ttyACM ]]; then
+            detected="$dev"
+            break
+        fi
+    done
+    # 没有 USB/ACM 就用第一个
+    [ -z "$detected" ] && detected="${candidates[0]}"
+
+    if [ -n "$detected" ]; then
+        ok "自动选择 RFID 设备: $detected"
+        export RFID_DEVICE="$detected"
+        # 同步写入 .env 文件
+        local env_file="$SCRIPT_DIR/warehouse-inspection-system/.env"
+        if [ -f "$env_file" ]; then
+            if grep -q "^RFID_DEVICE=" "$env_file"; then
+                sed -i "s|^RFID_DEVICE=.*|RFID_DEVICE=$detected|" "$env_file"
+            else
+                echo "RFID_DEVICE=$detected" >> "$env_file"
+            fi
+            ok "已写入 .env: RFID_DEVICE=$detected"
+        fi
+        # 检查并修复权限
+        check_rfid_permissions "$detected"
+    fi
+    return 0
+}
+
 # ── 停止服务 ──────────────────────────────────
 stop_service() {
     local name="$1" port="$2"
@@ -357,6 +485,8 @@ start_all() {
     echo -e "${CYAN}╚══════════════════════════════════════╝${NC}"
 
     start_infra || { error "基础设施启动失败"; return 1; }
+
+    detect_rfid_device
 
     echo ""
     echo -e "${CYAN}========================================${NC}"

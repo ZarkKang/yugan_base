@@ -38,12 +38,14 @@ services:
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres123
-      POSTGRES_DB: warehouse_inspection
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+      POSTGRES_DB: ${POSTGRES_DB:-warehouse_inspection}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       DEBUG: "true"
+      # RFID 串口路径（容器内与 devices 映射路径一致）
+      RFID_SERIAL_PORT: "${RFID_DEVICE:-/dev/null}"
     ports:
       - "8000:8000"
     depends_on:
@@ -51,6 +53,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # ── 串口设备直通（RFID 等硬件） ──
+    # 修改 .env 中的 RFID_DEVICE 变量来配置宿主机串口路径
+    #   不启用: RFID_DEVICE=   (容器无法访问 RFID)
+    #   Linux:  RFID_DEVICE=/dev/ttyUSB0
+    #   WSL:    RFID_DEVICE=/dev/ttyS6
+    # 如需映射多个串口，在此追加:
+    #   - "${RFID_DEVICE_2:-/dev/null}:/dev/ttyUSB1"
+    devices:
+      - "${RFID_DEVICE:-/dev/null}:/dev/ttyUSB0"
     volumes:
       - ./backend:/app
       - uploaded_files:/app/uploads

@@ -1,91 +1,186 @@
+# 域感智能 — Linux 使用手册
 
-# 域感智能 - Linux 环境
+> 基于无人机 + RFID 的仓库智能巡检一体化系统
 
-&gt; 智能无人机数据管理与仓库巡检系统
-
-## 📦 项目结构
+## 项目结构
 
 ```
 域感智能/
-├── drone-db-prototype/       # 无人机数据系统
-│   ├── backend/             # 后端服务
-│   ├── database/            # 数据库相关
-│   └── frontend/            # 前端
-├── warehouse-inspection-system/  # 仓库巡检系统
-│   └── backend/             # 后端服务
-├── api-gateway/             # API 网关
-├── desktop-app/             # 桌面应用
-├── systemd/                 # systemd 服务文件
-├── docker-compose.yml       # Docker 编排
-├── Makefile                # Make 工具
-├── 启动.sh                 # Linux 启动脚本
-├── deploy-linux.sh         # 一键部署脚本
-└── LINUX_DEPLOYMENT.md     # Linux 部署文档
+├── drone-db-prototype/              # 无人机数据系统 (端口 8000)
+│   ├── backend/                     # FastAPI + SQLite + Redis
+│   └── frontend/                    # 前端页面
+├── warehouse-inspection-system/     # 仓库巡检系统 (端口 8001)
+│   ├── backend/                     # FastAPI + PostgreSQL + Redis
+│   │   └── src/
+│   │       ├── api/                 # API 路由
+│   │       ├── hardware/            # RFID 驱动 (PRE 模块 V2.2)
+│   │       ├── services/            # 业务逻辑
+│   │       └── models/              # 数据模型
+│   ├── frontend/                    # 前端页面 (16 页)
+│   ├── docker-compose.yml           # Docker 编排
+│   └── .env                         # 环境变量配置
+├── api-gateway/                     # API 网关 (端口 8080)
+├── desktop-app/                     # 桌面启动器 (Electron)
+├── 引导.sh                          # 交互式引导菜单
+├── 启动.sh                          # 命令行启动/管理
+├── deploy-linux.sh                  # 一键部署脚本
+└── doc/                             # 文档
 ```
 
-## 🚀 快速开始
+---
 
-### 方式一：一键部署（推荐）
+## 快速开始
+
+### 方式一：引导菜单（推荐首次使用）
 
 ```bash
-# 1. 赋予执行权限
-chmod +x deploy-linux.sh
-
-# 2. 运行部署脚本
-./deploy-linux.sh
+chmod +x 引导.sh 启动.sh
+./引导.sh
 ```
 
-### 方式二：使用 Makefile
+交互式菜单包含：环境检查 → 依赖安装 → 数据库初始化 → 服务部署 → 功能测试
+
+### 方式二：一键启动（日常使用）
 
 ```bash
-# 安装所有依赖
-make install
-
-# 启动各个服务（不同终端）
-make drone      # 终端1：无人机数据系统
-make warehouse  # 终端2：仓库巡检系统
-make gateway    # 终端3：API 网关
-make desktop    # 终端4：桌面应用
+./启动.sh start          # 启动全部服务
+./启动.sh status         # 查看状态
+./启动.sh stop           # 停止全部服务
 ```
 
-### 方式三：手动启动
+### 方式三：Docker 生产模式
 
 ```bash
-# 无人机数据系统
-cd drone-db-prototype/backend
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-# 仓库巡检系统（新终端）
-cd warehouse-inspection-system/backend
-pip install -r requirements.txt
-uvicorn src.main:app --host 0.0.0.0 --port 8001 --reload
-
-# API 网关（新终端）
-cd api-gateway
-pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8080 --reload
-
-# 桌面应用（新终端）
-cd desktop-app
-npm install
-npm run dev
+cd warehouse-inspection-system
+# 编辑 .env 配置 RFID 串口路径
+docker compose up -d
 ```
 
-### 方式四：使用 Docker
+---
+
+## 三种运行模式
+
+| 模式 | 说明 | 适用场景 |
+|------|------|----------|
+| **hybrid**（默认） | 数据库用 Docker，后端用本地 | 开发调试（含 RFID 硬件） |
+| **local** | 全部本地运行 | 纯软件功能开发 |
+| **docker** | 全部 Docker 容器化 | 生产部署 |
 
 ```bash
-# 构建并启动所有服务
-docker-compose up -d
+# 切换模式
+./引导.sh  →  环境部署  →  切换运行模式
 
-# 查看日志
-docker-compose logs -f
-
-# 停止服务
-docker-compose down
+# 或直接指定
+MODE=docker ./启动.sh start
 ```
 
-## 📱 访问地址
+---
+
+## 启动脚本命令参考
+
+```bash
+./启动.sh start      # 一键启动 (hybrid 模式)
+./启动.sh docker     # Docker 模式启动
+./启动.sh daemon     # 守护进程模式 (自动重启)
+./启动.sh status     # 服务状态总览
+./启动.sh stop       # 停止所有服务
+./启动.sh help       # 帮助信息
+```
+
+启动时自动执行：
+- 基础设施检测 (PostgreSQL + Redis)
+- RFID 串口设备探测
+- 权限检查与修复 (dialout 组 / 设备权限)
+- 虚拟环境创建与依赖安装
+- 日志轮转
+
+---
+
+## 引导菜单功能
+
+```
+┌────────────────────────────┐
+│   域感智能 - 引导菜单       │
+├────────────────────────────┤
+│ 1. 环境部署                │
+│    ├─ 环境检查             │
+│    ├─ 安装依赖             │
+│    ├─ 初始化数据库         │
+│    ├─ 配置 pip 镜像        │
+│    ├─ 切换运行模式         │
+│    └─ 快速部署 (一键)      │
+│ 2. 服务管理                │
+│    ├─ 启动服务             │
+│    ├─ 停止服务             │
+│    └─ 查看日志             │
+│ 3. 功能测试                │
+│    ├─ RFID 测试            │
+│    ├─ QR 识别测试          │
+│    ├─ API 连通性测试       │
+│    └─ 数据库测试           │
+│ 4. 系统维护                │
+│    ├─ 清理虚拟环境         │
+│    ├─ 清理日志             │
+│    ├─ 重置数据库           │
+│    └─ 更新代码             │
+│ 5. 数据库管理              │
+│    ├─ 启停 PostgreSQL      │
+│    ├─ 启停 Redis           │
+│    ├─ SQL Shell            │
+│    └─ 查看数据表           │
+│ 6. 系统信息                │
+│ 0. 退出                    │
+└────────────────────────────┘
+```
+
+---
+
+## RFID 设置
+
+### 串口配置
+
+在 `warehouse-inspection-system/.env` 中配置：
+
+```bash
+# Linux 原生
+RFID_DEVICE=/dev/ttyUSB0
+
+# WSL 环境
+RFID_DEVICE=/dev/ttyS6
+
+# 不启用 RFID
+RFID_DEVICE=
+```
+
+启动脚本会自动检测串口并写入 `.env`，同时检查并修复权限。
+
+### Docker 模式串口直通
+
+```yaml
+# docker-compose.yml 已配置
+devices:
+  - "${RFID_DEVICE:-/dev/null}:/dev/ttyUSB0"
+environment:
+  RFID_SERIAL_PORT: "${RFID_DEVICE:-/dev/null}"
+```
+
+### RFID 参数设置
+
+Web 前端 → RFID 设置页面，支持全部 30 条 PRE 模块协议命令：
+
+| 分类 | 功能 |
+|------|------|
+| 基本 | 工作地区、发射功率、FHSS、CW 载波 |
+| Query | DR/M/TRext/Sel/Session/Target/Q |
+| 高级 | Modem 参数、盘存模式、环境模式、RF 信道 |
+| Select | ISO18000-6C Select 参数 |
+| 系统 | NV 配置保存/加载、重启、休眠 |
+| 诊断 | 干扰扫描、RSSI 扫描、模块信息 |
+| 标签 | NXP G2X、Monza QT |
+
+---
+
+## 访问地址
 
 | 服务 | 地址 |
 |------|------|
@@ -95,121 +190,77 @@ docker-compose down
 | 仓库巡检系统文档 | http://localhost:8001/docs |
 | API 网关 | http://localhost:8080 |
 | API 网关文档 | http://localhost:8080/docs |
+| 前端页面 | `warehouse-inspection-system/frontend/index.html` |
 
-## 🔧 配置说明
+---
 
-### 环境变量配置
+## 环境依赖
 
-复制示例配置：
-```bash
-cd drone-db-prototype/backend
-cp .env.example.linux .env
-```
+| 组件 | 必需 | 说明 |
+|------|:--:|------|
+| Python 3.11+ | Y | 后端服务 |
+| PostgreSQL | Y | 仓库巡检系统数据库 |
+| Redis | N | 缓存（可选） |
+| Docker | N | Docker 模式需要 |
+| CP2102 驱动 | Y | RFID 模块 USB 驱动 |
 
-编辑 `.env` 文件，根据需要修改配置。
+---
 
-### 数据库配置
-
-项目默认使用 SQLite（无需额外安装）。
-
-如需使用 PostgreSQL：
-```bash
-# 安装 PostgreSQL
-sudo apt install postgresql postgresql-contrib  # Debian/Ubuntu
-sudo dnf install postgresql-server              # Fedora/RHEL
-sudo pacman -S postgresql                       # Arch
-
-# 创建数据库和用户
-sudo -u postgres psql
-CREATE USER yugan WITH PASSWORD 'yugan123';
-CREATE DATABASE yugan_db OWNER yugan;
-\q
-
-# 修改配置
-# .env 中的 DATABASE_URL
-DATABASE_URL=postgresql://yugan:yugan123@localhost:5432/yugan_db
-```
-
-## 🔄 Systemd 服务（生产环境）
-
-### 安装服务
+## 权限要求
 
 ```bash
-# 复制服务文件
-sudo cp systemd/*.service /etc/systemd/system/
+# 串口设备访问
+sudo usermod -aG dialout $USER
 
-# 重新加载 systemd
-sudo systemctl daemon-reload
+# Docker 访问（Docker 模式）
+sudo usermod -aG docker $USER
+
+# 重新登录后生效
 ```
 
-### 管理服务
+启动脚本会自动检测并提示修复。
 
-```bash
-# 启动服务
-sudo systemctl start yugan-drone
-sudo systemctl start yugan-warehouse
+---
 
-# 设置开机自启
-sudo systemctl enable yugan-drone
-sudo systemctl enable yugan-warehouse
-
-# 查看状态
-sudo systemctl status yugan-drone
-
-# 查看日志
-sudo journalctl -u yugan-drone -f
-```
-
-## 🐛 故障排查
+## 故障排查
 
 ### 端口被占用
 
 ```bash
-# 查看端口占用
-netstat -tlnp | grep -E '8000|8001|8080'
-# 或
 lsof -i :8000
-
-# 结束进程
-kill -9 &lt;PID&gt;
+lsof -i :8001
+lsof -i :8080
+kill -9 <PID>
 ```
 
-### 权限问题
+### RFID 模块未检测到
 
 ```bash
-# 确保脚本有执行权限
-chmod +x 启动.sh deploy-linux.sh
+# 检查设备
+ls -la /dev/ttyUSB* /dev/ttyACM*
 
-# 确保当前用户对项目目录有读写权限
-chmod -R 755 /path/to/yugan-intelligence
+# 检查驱动
+lsusb | grep -i cp2102
+
+# 检查权限
+groups $USER | grep dialout
 ```
 
-### 依赖问题
+### Docker 容器日志
 
 ```bash
-# 创建虚拟环境
-python3 -m venv venv
-source venv/bin/activate
-
-# 在虚拟环境中安装依赖
-pip install -r requirements.txt
+docker compose logs -f backend
+docker compose logs -f postgres
 ```
 
-### 清理缓存
+### 服务启动失败
 
 ```bash
-make clean
+# 查看日志
+cat logs/仓库巡检系统.log
+cat logs/无人机数据系统.log
+cat logs/API网关.log
+
+# 或使用引导菜单
+./引导.sh  →  服务管理  →  查看日志
 ```
-
-## 📚 更多文档
-
-- [Linux 部署指南](./LINUX_DEPLOYMENT.md) - 详细的 Linux 部署说明
-- [后端完善文档](./BACKEND_IMPROVEMENTS.md) - 后端功能说明
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 📄 许可证
-
-MIT License

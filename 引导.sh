@@ -595,19 +595,97 @@ reset_database() {
 }
 
 update_code() {
+    echo ""
     echo -e "${BOLD}更新系统代码${NC}"
     echo ""
-    if command -v git &>/dev/null && git rev-parse --is-inside-work-tree &>/dev/null; then
-        info "当前分支: $(git branch --show-current)"
-        info "正在拉取更新..."
-        git pull
-        if [ $? -eq 0 ]; then
-            ok "代码更新完成，建议重启服务"
+
+    if ! command -v git &>/dev/null; then
+        error "git 未安装"
+        return 1
+    fi
+    if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+        warn "当前目录不是 git 仓库，跳过"
+        return 1
+    fi
+
+    local branch
+    branch=$(git branch --show-current)
+    echo -e "  仓库: ${CYAN}$(git remote get-url origin 2>/dev/null)${NC}"
+    echo -e "  分支: ${CYAN}$branch${NC}"
+
+    # 1. 检查本地是否有未提交的更改
+    local has_changes=false
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        has_changes=true
+        warn "检测到本地有未提交的更改"
+        echo ""
+        echo -e "  ${YELLOW}本地修改:${NC}"
+        git status --short
+        echo ""
+        if confirm "是否暂存本地更改后继续更新? (stash)" "Y"; then
+            info "暂存本地更改..."
+            git stash push -m "引导.sh 自动暂存 - $(date '+%Y-%m-%d %H:%M')" 2>/dev/null
+            ok "本地更改已暂存 (git stash)"
         else
-            warn "更新失败或已是最新"
+            info "跳过更新"
+            return 0
+        fi
+    fi
+
+    # 2. 拉取远程信息
+    echo ""
+    info "获取远程更新..."
+    if ! git fetch origin "$branch" 2>&1; then
+        error "无法连接远程仓库，请检查网络"
+        [ "$has_changes" = "true" ] && { info "恢复本地更改..."; git stash pop 2>/dev/null; }
+        return 1
+    fi
+
+    # 3. 检查是否有新提交
+    local local_commit remote_commit
+    local_commit=$(git rev-parse HEAD)
+    remote_commit=$(git rev-parse "origin/$branch" 2>/dev/null)
+
+    if [ "$local_commit" = "$remote_commit" ]; then
+        ok "已是最新版本"
+        [ "$has_changes" = "true" ] && { info "恢复本地更改..."; git stash pop 2>/dev/null; }
+        return 0
+    fi
+
+    # 4. 显示更新内容
+    echo ""
+    echo -e "  ${CYAN}远程新增提交:${NC}"
+    git log --oneline "HEAD..origin/$branch" 2>/dev/null | head -20
+    echo ""
+
+    # 5. 二次确认
+    if ! confirm "确认更新到最新版本?" "Y"; then
+        info "已取消更新"
+        [ "$has_changes" = "true" ] && { info "恢复本地更改..."; git stash pop 2>/dev/null; }
+        return 0
+    fi
+
+    # 6. 执行合并
+    info "正在合并更新..."
+    if git merge "origin/$branch" 2>&1; then
+        ok "代码更新成功"
+        echo ""
+        echo -e "  ${GREEN}已更新到: $(git log --oneline -1)${NC}"
+        echo ""
+        if confirm "是否重启服务使更新生效?" "Y"; then
+            # 调用启动脚本重启
+            if [ -f "$SCRIPT_DIR/启动.sh" ]; then
+                bash "$SCRIPT_DIR/启动.sh" stop 2>/dev/null
+                sleep 2
+                bash "$SCRIPT_DIR/启动.sh" start
+            else
+                warn "未找到启动脚本，请手动重启服务"
+            fi
         fi
     else
-        warn "当前目录不是 git 仓库"
+        error "合并冲突! 请手动解决: git status"
+        info "冲突文件请手动编辑后执行: git add . && git commit"
+        return 1
     fi
 }
 
