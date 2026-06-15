@@ -60,6 +60,7 @@ EPC 解析公式：`pc_byte0 = params[1]`, `epc_len = ((pc_byte0 // 8) + 1) * 2 
 3. PRE 模块默认波特率 115200，auto_detect 会依次尝试 [115200,9600,38400,19200,57600]
 4. WSL 下串口路径 `/dev/ttyS<N>`，Windows 下为 `COM<N>`
 5. 常见失败: 模块未通电 / CP2102 驱动未装 / COM 口被 Demo 软件占用
+6. 部署脚本已自动处理：`deploy-linux.sh` 和 `引导.sh` 快速部署会自动 `sudo chmod 666` 并加入 `dialout` 组
 
 ## 入库流程
 ```

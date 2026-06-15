@@ -1,5 +1,24 @@
 # 域感智能 开发日志
 
+## 2026-06-14 部署脚本增强：RFID 串口权限自动配置 + 全系统启动验证
+- **类型**：[新增功能] + [修复] + [配置]
+- **影响范围**：全局（部署脚本 + 引导菜单 + 启动脚本）
+- **详细内容**：
+  1. **全系统启动验证**：成功启动所有4个子系统（drone:8000 / warehouse:8001 / gateway:8080 / desktop-app），验证健康检查、数据库连接、API 连通性均正常。
+  2. **RFID 连接诊断**：`GET /api/v1/rfid/diagnose` 确认 pyserial 可用、`/dev/ttyUSB0` 存在但权限不足（用户不在 dialout 组），连接失败根因定位为串口权限问题。
+  3. **启动.sh 增强**：`check_rfid_permissions` 新增 `auto_fix` 参数，静默模式下自动尝试 `sudo chmod 666` 和 `sudo usermod -aG dialout/docker`，无需交互即可修复权限。
+  4. **deploy-linux.sh 增强**：部署流程新增 RFID 串口权限配置步骤，自动检测 `/dev/ttyUSB*` / `/dev/ttyACM*`，修复设备权限 + 加入 dialout 组 + 加入 docker 组。
+  5. **引导.sh 增强**：新增 `setup_rfid_permissions()` 函数；集成到快速部署流程；环境部署子菜单新增独立选项「配置RFID串口权限」。
+  6. **Git 提交**：本地提交 `4e8465f` feat(global): 部署脚本新增 RFID 串口权限自动配置，推送因 GitHub 连接受阻。
+- **相关文件**：
+  - `启动.sh`（check_rfid_permissions 改造）
+  - `deploy-linux.sh`（新增 RFID 权限配置段落）
+  - `引导.sh`（新增 setup_rfid_permissions 函数 + 菜单项）
+  - `warehouse-inspection-system/.env`（新建，数据库连接配置）
+- **后续动作**：真机 RFID 串口通信验证；`RFIDTag` 表填充 EPC→商品映射数据；GitHub 推送待网络恢复后执行。
+
+---
+
 ## 2026-06-13 修复：完善注册系统 + ensure-admin 兜底机制
 - **类型**：[修复] + [新增功能]
 - **影响范围**：全局（drone-db-prototype + warehouse-inspection-system）
