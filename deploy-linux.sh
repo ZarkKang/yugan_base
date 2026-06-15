@@ -117,7 +117,70 @@ if [ "$service_choice" = "y" ]; then
     echo "  sudo systemctl enable yugan-warehouse"
 fi
 
-# 设置权限
+# ── RFID 串口权限自动配置 ──────────────────────
+echo ""
+echo "========================================"
+echo "  配置 RFID 串口设备权限"
+echo "========================================"
+
+# 检测 RFID 设备
+DETECTED_DEVICE=""
+for dev in /dev/ttyUSB* /dev/ttyACM*; do
+    [ -e "$dev" ] && DETECTED_DEVICE="$dev" && break
+done
+
+if [ -n "$DETECTED_DEVICE" ]; then
+    echo "检测到串口设备: $DETECTED_DEVICE"
+
+    # 修复设备权限
+    if [ -r "$DETECTED_DEVICE" ] && [ -w "$DETECTED_DEVICE" ]; then
+        echo "[OK] 设备权限正常: $DETECTED_DEVICE"
+    else
+        echo "[WARN] 设备权限不足，尝试修复..."
+        if sudo chmod 666 "$DETECTED_DEVICE" 2>/dev/null; then
+            echo "[OK] 设备权限已修复: $DETECTED_DEVICE"
+        else
+            echo "[WARN] 无法修复设备权限，请手动执行: sudo chmod 666 $DETECTED_DEVICE"
+        fi
+    fi
+
+    # 将用户加入 dialout 组（Linux 串口访问权限）
+    if [ "$(uname -s)" = "Linux" ]; then
+        if groups "$USER" 2>/dev/null | grep -q dialout; then
+            echo "[OK] 用户已在 dialout 组"
+        else
+            echo "[WARN] 用户不在 dialout 组，尝试加入..."
+            if sudo usermod -aG dialout "$USER" 2>/dev/null; then
+                echo "[OK] 已将用户加入 dialout 组"
+                echo "[INFO] 组变更将在重新登录后生效"
+            else
+                echo "[WARN] 加入 dialout 组失败，请手动执行: sudo usermod -aG dialout \$USER"
+            fi
+        fi
+    fi
+
+    # 将用户加入 docker 组（如果使用 Docker）
+    if command -v docker &>/dev/null; then
+        if groups "$USER" 2>/dev/null | grep -q docker; then
+            echo "[OK] 用户已在 docker 组"
+        else
+            echo "[WARN] 用户不在 docker 组，尝试加入..."
+            if sudo usermod -aG docker "$USER" 2>/dev/null; then
+                echo "[OK] 已将用户加入 docker 组"
+                echo "[INFO] 组变更将在重新登录后生效"
+            else
+                echo "[WARN] 加入 docker 组失败，请手动执行: sudo usermod -aG docker \$USER"
+            fi
+        fi
+    fi
+else
+    echo "[INFO] 未检测到 RFID 串口设备，跳过权限配置"
+    echo "  连接 RFID 设备后，请手动执行:"
+    echo "    sudo chmod 666 /dev/ttyUSB0"
+    echo "    sudo usermod -aG dialout \$USER"
+fi
+
+# 设置文件权限
 echo ""
 echo "正在设置文件权限..."
 chmod +x 启动.sh

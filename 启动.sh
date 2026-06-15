@@ -245,7 +245,8 @@ start_backend_bg() {
     setup_venv "$dir" "$req_file" || return 1
 
     info "启动 ${name} (端口 $port)..."
-    nohup "$venv_dir/bin/uvicorn" "$module" --host 0.0.0.0 --port "$port" --app-dir "$abs_dir" > "$log_file" 2>&1 &
+    cd "$abs_dir" && nohup "$venv_dir/bin/uvicorn" "$module" --host 0.0.0.0 --port "$port" > "$log_file" 2>&1 &
+    cd "$SCRIPT_DIR"
     local pid=$!
     echo "$pid" > "$SCRIPT_DIR/logs/${name}.pid"
     debug "PID: $pid"
@@ -320,6 +321,7 @@ check_all_status() {
 # 检查并修复串口设备权限
 check_rfid_permissions() {
     local device="$1"
+    local auto_fix="${2:-false}"  # 是否自动修复权限
 
     # 1. 检查设备读写权限
     if [ -n "$device" ] && [ -e "$device" ]; then
@@ -327,11 +329,16 @@ check_rfid_permissions() {
             ok "设备权限正常: $device (可读写)"
         else
             warn "设备权限不足: $device"
-            echo -e "  ${YELLOW}尝试修复权限...${NC}"
+            # 尝试自动修复权限（静默模式）
             if sudo -n true 2>/dev/null; then
-                sudo chmod 666 "$device" 2>/dev/null && ok "权限已修复" || warn "自动修复失败，请手动执行: sudo chmod 666 $device"
-            else
-                echo -e "  ${YELLOW}请手动执行:${NC} sudo chmod 666 $device"
+                if sudo chmod 666 "$device" 2>/dev/null; then
+                    ok "权限已自动修复: $device"
+                else
+                    warn "自动修复失败，请手动执行: sudo chmod 666 $device"
+                fi
+            elif [ "$auto_fix" = "true" ]; then
+                # 非交互模式下仅警告
+                warn "无 sudo 权限，请手动执行: sudo chmod 666 $device"
             fi
         fi
     fi
@@ -342,20 +349,16 @@ check_rfid_permissions() {
             ok "用户已在 dialout 组"
         else
             warn "用户不在 dialout 组 (串口设备可能无法访问)"
-            echo ""
-            echo -e "  ${YELLOW}是否将当前用户加入 dialout 组?${NC}"
-            echo "  此操作需要 sudo 权限，完成后需重新登录才能生效。"
-            echo ""
-            read -p "  执行? [Y/n] " -r reply
-            if [ "$reply" != "n" ] && [ "$reply" != "N" ]; then
-                if sudo -n true 2>/dev/null; then
-                    sudo usermod -aG dialout "$USER" && ok "已加入 dialout 组 (请重新登录后生效)" || error "加入 dialout 组失败"
+            # 自动将用户加入 dialout 组
+            if sudo -n true 2>/dev/null; then
+                if sudo usermod -aG dialout "$USER" 2>/dev/null; then
+                    ok "已将用户 $USER 加入 dialout 组"
+                    info "注意: 组变更将在新终端会话中生效，当前会话可能需要重新登录"
                 else
-                    echo -e "  ${YELLOW}请输入 sudo 密码:${NC}"
-                    sudo usermod -aG dialout "$USER" 2>/dev/null && ok "已加入 dialout 组 (请重新登录后生效)" || error "加入 dialout 组失败"
+                    warn "加入 dialout 组失败，请手动执行: sudo usermod -aG dialout \$USER"
                 fi
-            else
-                info "跳过。如需手动执行: sudo usermod -aG dialout \$USER"
+            elif [ "$auto_fix" = "true" ]; then
+                warn "无 sudo 权限，请手动执行: sudo usermod -aG dialout \$USER"
             fi
         fi
     fi
@@ -365,8 +368,13 @@ check_rfid_permissions() {
         if groups "$USER" 2>/dev/null | grep -q docker; then
             ok "用户已在 docker 组"
         else
-            warn "用户不在 docker 组 (启动 Docker 需要 sudo)"
-            echo -e "  ${YELLOW}手动执行:${NC} sudo usermod -aG docker \$USER"
+            warn "用户不在 docker 组"
+            if sudo -n true 2>/dev/null; then
+                if sudo usermod -aG docker "$USER" 2>/dev/null; then
+                    ok "已将用户 $USER 加入 docker 组"
+                    info "注意: 组变更将在新终端会话中生效"
+                fi
+            fi
         fi
     fi
 }
@@ -437,8 +445,8 @@ detect_rfid_device() {
             fi
             ok "已写入 .env: RFID_DEVICE=$detected"
         fi
-        # 检查并修复权限
-        check_rfid_permissions "$detected"
+        # 检查并修复权限（启用自动修复模式）
+        check_rfid_permissions "$detected" true
     fi
     return 0
 }

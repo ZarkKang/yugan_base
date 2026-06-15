@@ -90,11 +90,12 @@ deploy_menu() {
         echo ""
         echo -e "${BOLD}>> 环境部署${NC}"
         local opt
-        opt=$(menu_select "请选择 [1-7]: " \
+        opt=$(menu_select "请选择 [1-8]: " \
             "快速部署(全自动)" \
             "检测环境" \
             "安装系统依赖" \
             "初始化数据库" \
+            "配置RFID串口权限" \
             "配置PiP镜像源" \
             "设置运行模式" \
             "返回主菜单")
@@ -104,6 +105,7 @@ deploy_menu() {
             "检测环境")   check_environment; press_enter ;;
             "安装系统依赖")   install_dependencies; press_enter ;;
             "初始化数据库") init_database; press_enter ;;
+            "配置RFID串口权限") setup_rfid_permissions; press_enter ;;
             "配置PiP镜像源")  config_pip_mirror; press_enter ;;
             "设置运行模式") select_mode; press_enter ;;
             "返回主菜单")    return ;;
@@ -253,10 +255,69 @@ select_mode() {
     esac
 }
 
+# ── RFID 串口权限配置 ──────────────────────────
+setup_rfid_permissions() {
+    echo -e "${BOLD}配置 RFID 串口权限${NC}"
+    echo ""
+
+    # 检测 RFID 设备
+    local detected=""
+    for dev in /dev/ttyUSB* /dev/ttyACM*; do
+        [ -e "$dev" ] && detected="$dev" && break
+    done
+
+    if [ -n "$detected" ]; then
+        ok "检测到串口设备: $detected"
+
+        # 修复设备读写权限
+        if [ -r "$detected" ] && [ -w "$detected" ]; then
+            ok "设备权限正常: $detected (可读写)"
+        else
+            warn "设备权限不足，尝试修复..."
+            if sudo chmod 666 "$detected" 2>/dev/null; then
+                ok "设备权限已修复: $detected"
+            else
+                warn "无法修复设备权限，请手动执行: sudo chmod 666 $detected"
+            fi
+        fi
+
+        # 检查用户 dialout 组
+        if groups "$USER" 2>/dev/null | grep -q dialout; then
+            ok "用户已在 dialout 组"
+        else
+            warn "用户不在 dialout 组"
+            if sudo usermod -aG dialout "$USER" 2>/dev/null; then
+                ok "已将用户加入 dialout 组 (重新登录后生效)"
+            else
+                warn "加入 dialout 组失败，请手动执行: sudo usermod -aG dialout \$USER"
+            fi
+        fi
+
+        # 检查 docker 组
+        if command -v docker &>/dev/null; then
+            if groups "$USER" 2>/dev/null | grep -q docker; then
+                ok "用户已在 docker 组"
+            else
+                warn "用户不在 docker 组"
+                if sudo usermod -aG docker "$USER" 2>/dev/null; then
+                    ok "已将用户加入 docker 组 (重新登录后生效)"
+                else
+                    warn "加入 docker 组失败，请手动执行: sudo usermod -aG docker \$USER"
+                fi
+            fi
+        fi
+    else
+        info "未检测到 RFID 串口设备，跳过权限配置"
+        echo "  连接设备后请手动执行:"
+        echo "    sudo chmod 666 /dev/ttyUSB0"
+        echo "    sudo usermod -aG dialout \$USER"
+    fi
+}
+
 quick_deploy() {
     echo -e "${BOLD}快速部署（全自动）${NC}"
     echo ""
-    if ! confirm "将检测环境、安装依赖、初始化数据库。继续？"; then
+    if ! confirm "将检测环境、安装依赖、初始化数据库、配置RFID权限。继续？"; then
         warn "已取消"; return
     fi
 
@@ -265,6 +326,8 @@ quick_deploy() {
     install_dependencies
     echo ""
     init_database
+    echo ""
+    setup_rfid_permissions
     echo ""
     ok "快速部署完成"
 }
