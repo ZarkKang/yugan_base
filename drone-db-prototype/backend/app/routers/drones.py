@@ -5,7 +5,7 @@ from typing import List, Optional
 from ..core.database import get_db
 from ..core.security import get_current_active_user
 from ..models.user import User
-from ..models.drone import Drone, DroneStatus
+from ..models.drone import Drone
 from ..models.sku import SKU
 from ..schemas.drone import DroneCreate, DroneUpdate, DroneResponse
 
@@ -36,7 +36,7 @@ def create_drone(drone: DroneCreate, db: Session = Depends(get_db), current_user
 def list_drones(
     skip: int = 0,
     limit: int = 100,
-    status: Optional[DroneStatus] = None,
+    status: Optional[str] = None,
     is_active: Optional[bool] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -94,10 +94,7 @@ def drone_heartbeat(
         raise HTTPException(status_code=404, detail="无人机不存在")
     # 更新状态和位置
     if payload.get("status"):
-        try:
-            drone.status = DroneStatus(payload["status"])
-        except ValueError:
-            pass
+        drone.status = payload["status"]
     pos = payload.get("position", {})
     if pos:
         drone.latitude = pos.get("latitude", pos.get("x", drone.latitude))

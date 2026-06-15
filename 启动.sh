@@ -146,9 +146,9 @@ start_daemon() {
     while true; do
         sleep 15
         count=$((count+1))
-        # 每15秒检查一次
-        auto_restart_monitor "无人机数据系统" "$DRONE_PORT" "app.main:app" "drone-db-prototype/backend"
+        # 每15秒检查一次 (仓库巡检系统先启动以确保表结构)
         auto_restart_monitor "仓库巡检系统" "$WAREHOUSE_PORT" "src.main:app" "warehouse-inspection-system/backend"
+        auto_restart_monitor "无人机数据系统" "$DRONE_PORT" "app.main:app" "drone-db-prototype/backend"
         auto_restart_monitor "API网关" "$GATEWAY_PORT" "main:app" "api-gateway"
         # 每5分钟轮转一次日志
         if [ $((count % 20)) -eq 0 ]; then
@@ -498,15 +498,17 @@ start_all() {
 
     echo ""
     echo -e "${CYAN}========================================${NC}"
-    echo -e "${CYAN}    步骤 2/4: 启动无人机数据系统${NC}"
+    echo -e "${CYAN}    步骤 2/4: 启动仓库巡检系统${NC}"
+    echo -e "${CYAN}    (先启动以创建统一的数据库表结构)${NC}"
     echo -e "${CYAN}========================================${NC}"
-    start_backend_bg "无人机数据系统" "drone-db-prototype/backend" "app.main:app" "$DRONE_PORT" || true
+    start_backend_bg "仓库巡检系统" "warehouse-inspection-system/backend" "src.main:app" "$WAREHOUSE_PORT" || true
 
     echo ""
     echo -e "${CYAN}========================================${NC}"
-    echo -e "${CYAN}    步骤 3/4: 启动仓库巡检系统${NC}"
+    echo -e "${CYAN}    步骤 3/4: 启动无人机数据系统${NC}"
+    echo -e "${CYAN}    (共用PostgreSQL数据库)${NC}"
     echo -e "${CYAN}========================================${NC}"
-    start_backend_bg "仓库巡检系统" "warehouse-inspection-system/backend" "src.main:app" "$WAREHOUSE_PORT" || true
+    start_backend_bg "无人机数据系统" "drone-db-prototype/backend" "app.main:app" "$DRONE_PORT" || true
 
     echo ""
     echo -e "${CYAN}========================================${NC}"

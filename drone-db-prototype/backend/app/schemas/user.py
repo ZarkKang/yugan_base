@@ -1,29 +1,28 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime
-from ..models.user import UserRole
 
 
 class UserBase(BaseModel):
     username: str
-    email: EmailStr
+    email: Optional[EmailStr] = None
 
 
 class UserCreate(UserBase):
     password: str
-    role: UserRole = UserRole.OPERATOR
+    role: str = "operator"
 
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     password: Optional[str] = None
-    role: Optional[UserRole] = None
+    role: Optional[str] = None
     is_active: Optional[bool] = None
 
 
 class UserResponse(UserBase):
     id: int
-    role: UserRole
+    role: str
     is_active: bool
     created_at: datetime
 

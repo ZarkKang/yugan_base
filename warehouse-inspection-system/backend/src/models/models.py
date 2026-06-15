@@ -1,7 +1,7 @@
 """
 数据模型 - 数据库表结构定义
 """
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, Enum as SQLEnum, JSON
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, Enum as SQLEnum, JSON, BigInteger
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..db.database import Base
@@ -50,25 +50,56 @@ def _gen_id(prefix: str) -> str:
 
 
 class Drone(Base):
-    """无人机表"""
+    """无人机表 — 两个系统共用，统一字段"""
     __tablename__ = "drones"
 
     id = Column(Integer, primary_key=True, index=True)
     drone_code = Column(String(50), unique=True, index=True, nullable=False, comment="无人机编号")
     drone_name = Column(String(100), comment="无人机名称")
+    name = Column(String(100), nullable=True, comment="无人机名称（兼容无人机数据系统）")
     model = Column(String(100), comment="型号")
-    status = Column(String(20), default="offline", comment="状态: online/offline/maintenance")
-    battery_level = Column(Float, default=100.0, comment="电池电量百分比")
+    manufacturer = Column(String(100), nullable=True, comment="制造商")
+
+    status = Column(String(20), default="idle", comment="状态: idle/flying/maintenance/retired/online/offline")
+
+    # 位置信息（GPS坐标）
+    latitude = Column(Float, nullable=True, comment="纬度")
+    longitude = Column(Float, nullable=True, comment="经度")
+    altitude = Column(Float, nullable=True, comment="海拔高度(米)")
+
+    # 仓库坐标（基站坐标系）
     last_position_x = Column(Float, nullable=True, comment="最后位置X")
     last_position_y = Column(Float, nullable=True, comment="最后位置Y")
     last_position_z = Column(Float, nullable=True, comment="最后位置Z")
+
+    # 飞行参数
+    max_speed = Column(Float, nullable=True, comment="最大速度(km/h)")
+    max_altitude = Column(Float, nullable=True, comment="最大飞行高度(米)")
+    flight_duration = Column(Integer, nullable=True, comment="续航时间(分钟)")
+
+    # 电池
+    battery_level = Column(Float, default=100.0, comment="电池电量百分比")
+
+    # 关联
+    sku_id = Column(Integer, ForeignKey("skus.id"), unique=True, nullable=True, comment="关联SKU")
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True, comment="所属用户")
+
+    # 备注
+    description = Column(Text, nullable=True, comment="描述")
+    is_active = Column(Boolean, default=True, comment="是否启用")
+
     last_seen = Column(DateTime, nullable=True, comment="最后在线时间")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     # 关系
+    sku = relationship("SKU", back_populates="drone", foreign_keys=[sku_id])
+    owner = relationship("User", back_populates="drones", foreign_keys=[owner_id])
     inspection_records = relationship("InspectionRecord", back_populates="drone")
     tasks = relationship("Task", back_populates="drone")
+    video_data = relationship("VideoData", back_populates="drone")
+    image_data = relationship("ImageData", back_populates="drone")
+    rfid_data = relationship("RFIDData", back_populates="drone")
 
 
 class Shelf(Base):
@@ -339,7 +370,7 @@ class InspectionReport(Base):
 
 # ========== 用户表 ==========
 class User(Base):
-    """用户表"""
+    """用户表 — 两个系统共用"""
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -347,10 +378,13 @@ class User(Base):
     email = Column(String(100), unique=True, index=True, nullable=True, comment="邮箱")
     hashed_password = Column(String(512), nullable=False, comment="密码哈希")
     full_name = Column(String(100), nullable=True, comment="显示名")
-    role = Column(String(20), default="user", comment="角色: admin/user/operator")
+    role = Column(String(20), default="operator", comment="角色: admin/operator/viewer")
     is_active = Column(Boolean, default=True, comment="是否启用")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # 关系
+    drones = relationship("Drone", back_populates="owner", foreign_keys="Drone.owner_id")
 
 
 # ========== RFID库存快照表 ==========
@@ -403,3 +437,119 @@ class SystemLog(Base):
     message = Column(Text, nullable=False, comment="日志消息")
     details = Column(Text, nullable=True, comment="详细信息JSON")
     created_at = Column(DateTime, server_default=func.now(), index=True)
+
+
+# ========== SKU表 ==========
+class SKU(Base):
+    """SKU表 — 两个系统共用"""
+    __tablename__ = "skus"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sku_code = Column(String(50), unique=True, index=True, nullable=False, comment="SKU编码")
+    name = Column(String(100), nullable=False, comment="SKU名称")
+    description = Column(Text, nullable=True, comment="描述")
+    category = Column(String(50), index=True, comment="分类")
+    unit = Column(String(20), default="个", comment="单位")
+    is_active = Column(Boolean, default=True, comment="是否启用")
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # 关系
+    drone = relationship("Drone", back_populates="sku", uselist=False, foreign_keys="Drone.sku_id")
+
+
+# ========== 视频数据表 ==========
+class VideoData(Base):
+    """无人机视频数据表"""
+    __tablename__ = "video_data"
+
+    id = Column(Integer, primary_key=True, index=True)
+    file_name = Column(String(255), nullable=False, comment="文件名")
+    file_path = Column(String(500), nullable=False, comment="存储路径")
+    file_size = Column(BigInteger, comment="文件大小(字节)")
+    duration = Column(Float, nullable=True, comment="视频时长(秒)")
+
+    # 视频参数
+    resolution = Column(String(20), nullable=True, comment="分辨率如1920x1080")
+    frame_rate = Column(Float, nullable=True, comment="帧率")
+    codec = Column(String(50), nullable=True, comment="编码格式")
+
+    # 拍摄信息
+    latitude = Column(Float, nullable=True, comment="拍摄位置纬度")
+    longitude = Column(Float, nullable=True, comment="拍摄位置经度")
+    altitude = Column(Float, nullable=True, comment="飞行高度")
+
+    # 关联
+    drone_id = Column(Integer, ForeignKey("drones.id"), nullable=True, comment="关联无人机")
+    captured_at = Column(DateTime, nullable=True, comment="拍摄时间")
+
+    # 元数据
+    description = Column(Text, nullable=True, comment="备注")
+    created_at = Column(DateTime, server_default=func.now())
+
+    # 关系
+    drone = relationship("Drone", back_populates="video_data")
+
+
+# ========== 图片数据表 ==========
+class ImageData(Base):
+    """无人机图片数据表"""
+    __tablename__ = "image_data"
+
+    id = Column(Integer, primary_key=True, index=True)
+    file_name = Column(String(255), nullable=False, comment="文件名")
+    file_path = Column(String(500), nullable=False, comment="存储路径")
+    file_size = Column(BigInteger, comment="文件大小(字节)")
+
+    # 图片参数
+    width = Column(Integer, nullable=True, comment="宽度")
+    height = Column(Integer, nullable=True, comment="高度")
+    format = Column(String(20), nullable=True, comment="格式JPG/PNG")
+
+    # 拍摄信息
+    latitude = Column(Float, nullable=True, comment="拍摄位置纬度")
+    longitude = Column(Float, nullable=True, comment="拍摄位置经度")
+    altitude = Column(Float, nullable=True, comment="飞行高度")
+
+    # 关联
+    drone_id = Column(Integer, ForeignKey("drones.id"), nullable=True, comment="关联无人机")
+    captured_at = Column(DateTime, nullable=True, comment="拍摄时间")
+
+    # 元数据
+    description = Column(Text, nullable=True, comment="备注")
+    created_at = Column(DateTime, server_default=func.now())
+
+    # 关系
+    drone = relationship("Drone", back_populates="image_data")
+
+
+# ========== 无人机RFID读取数据表 ==========
+class RFIDData(Base):
+    """无人机RFID读取数据 — 无人机飞行中读取到的RFID标签记录"""
+    __tablename__ = "rfid_data"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rfid_tag = Column(String(100), unique=True, index=True, nullable=False, comment="RFID标签ID")
+    tag_type = Column(String(50), nullable=True, comment="标签类型")
+
+    # 位置信息
+    latitude = Column(Float, nullable=True, comment="纬度")
+    longitude = Column(Float, nullable=True, comment="经度")
+    altitude = Column(Float, nullable=True, comment="海拔")
+
+    # 信号强度
+    signal_strength = Column(Float, nullable=True, comment="信号强度dBm")
+
+    # 关联无人机
+    drone_id = Column(Integer, ForeignKey("drones.id"), nullable=True, comment="读取无人机")
+
+    # 检测时间
+    detected_at = Column(DateTime, nullable=True, comment="检测时间")
+
+    # 元数据
+    description = Column(Text, nullable=True, comment="备注")
+    is_valid = Column(Boolean, default=True, comment="是否有效")
+    created_at = Column(DateTime, server_default=func.now())
+
+    # 关系
+    drone = relationship("Drone", back_populates="rfid_data")

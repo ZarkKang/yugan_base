@@ -1,7 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
-from ..models.drone import DroneStatus
 
 
 class DroneBase(BaseModel):
@@ -9,7 +8,7 @@ class DroneBase(BaseModel):
     name: str
     model: Optional[str] = None
     manufacturer: Optional[str] = None
-    status: DroneStatus = DroneStatus.IDLE
+    status: str = "idle"
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     altitude: Optional[float] = None
@@ -28,7 +27,7 @@ class DroneUpdate(BaseModel):
     name: Optional[str] = None
     model: Optional[str] = None
     manufacturer: Optional[str] = None
-    status: Optional[DroneStatus] = None
+    status: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     altitude: Optional[float] = None

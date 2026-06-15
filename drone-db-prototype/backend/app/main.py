@@ -30,8 +30,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 创建数据库表
-Base.metadata.create_all(bind=engine)
+# 创建数据库表（仓库巡检系统为主Schema持有者，此处仅确保共享表存在）
+try:
+    Base.metadata.create_all(bind=engine)
+    logger.info("数据库表检查完成（共享 PostgreSQL）")
+except Exception as e:
+    logger.warning(f"数据库表检查失败（可能已由仓库巡检系统创建）: {e}")
 
 # 初始化默认数据（模块级执行一次）
 try:

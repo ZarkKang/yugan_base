@@ -210,11 +210,12 @@ init_database() {
         error "PostgreSQL 未运行，请先启动数据库服务"; return
     fi
 
-    info "创建数据库和用户..."
-    sudo -u postgres psql -c "CREATE USER warehouse_admin WITH PASSWORD 'warehouse123' CREATEDB;" 2>/dev/null || true
-    sudo -u postgres psql -c "CREATE DATABASE warehouse_inspection OWNER warehouse_admin;" 2>/dev/null || warn "数据库已存在"
-    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE warehouse_inspection TO warehouse_admin;" 2>/dev/null || true
-    ok "数据库初始化完成"
+    info "创建共享数据库（两个系统共用 warehouse_inspection）..."
+    sudo -u postgres psql -c "CREATE USER postgres WITH PASSWORD 'postgres' CREATEDB;" 2>/dev/null || true
+    sudo -u postgres psql -c "CREATE DATABASE warehouse_inspection OWNER postgres;" 2>/dev/null || warn "数据库已存在"
+    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE warehouse_inspection TO postgres;" 2>/dev/null || true
+    ok "共享数据库 warehouse_inspection 初始化完成"
+    info "提示: 两个系统（8000 和 8001）共用此数据库，数据实时同步"
 }
 
 config_pip_mirror() {
@@ -559,9 +560,11 @@ test_api_connectivity() {
 test_database() {
     echo -e "${BOLD}数据库连通性测试${NC}"
     echo ""
+    echo -e "${CYAN}连接目标: warehouse_inspection (两个系统共用)${NC}"
+    echo ""
     if command -v pg_isready &>/dev/null; then
         if pg_isready -h localhost -p 5432; then
-            ok "PostgreSQL: 连接正常"
+            ok "PostgreSQL (warehouse_inspection): 连接正常"
         else
             error "PostgreSQL: 连接失败"
         fi
@@ -643,7 +646,7 @@ clean_logs() {
 reset_database() {
     echo -e "${BOLD}重置数据库${NC}"
     echo ""
-    warn "此操作将删除所有数据！"
+    warn "此操作将删除两个系统的所有数据！"
     if ! confirm "确定要重置数据库吗？此操作不可恢复！"; then
         warn "已取消"; return
     fi
@@ -651,9 +654,9 @@ reset_database() {
         warn "已取消"; return
     fi
 
-    info "正在重置数据库..."
+    info "正在重置共享数据库..."
     sudo -u postgres psql -c "DROP DATABASE warehouse_inspection;" 2>/dev/null || true
-    sudo -u postgres psql -c "CREATE DATABASE warehouse_inspection OWNER warehouse_admin;" 2>/dev/null || true
+    sudo -u postgres psql -c "CREATE DATABASE warehouse_inspection OWNER postgres;" 2>/dev/null || true
     ok "数据库已重置，重启服务后会自动重新建表"
 }
 
@@ -967,23 +970,10 @@ db_list_tables() {
 
     local dbname="${1:-warehouse_inspection}"
 
-    echo -e "${CYAN}--- ${dbname} 数据库 ---${NC}"
+    echo -e "${CYAN}--- ${dbname} (两个系统共用) ---${NC}"
+    echo -e "  无人机数据系统 (8000) + 仓库巡检系统 (8001)"
     echo ""
 
-    # 无人机数据系统 (SQLite)
-    local sqlite_db="$SCRIPT_DIR/drone-db-prototype/backend/yugan.db"
-    if [ -f "$sqlite_db" ]; then
-        echo -e "${CYAN}--- drone-db-prototype (SQLite) ---${NC}"
-        if command -v sqlite3 &>/dev/null; then
-            sqlite3 "$sqlite_db" ".tables" 2>/dev/null && echo ""
-        else
-            warn "sqlite3 未安装，无法查看"
-        fi
-    else
-        warn "SQLite 数据库文件不存在: $sqlite_db"
-    fi
-
-    echo -e "${CYAN}--- warehouse-inspection (PostgreSQL) ---${NC}"
     sudo -u postgres psql -d "$dbname" -c "\dt" 2>/dev/null || warn "无法连接数据库"
 
     echo ""

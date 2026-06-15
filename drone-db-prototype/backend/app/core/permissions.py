@@ -1,7 +1,7 @@
 from fastapi import Depends, HTTPException, status
 from typing import List, Set
 from enum import Enum
-from ..models.user import User, UserRole
+from ..models.user import User
 from .security import get_current_active_user
 
 
@@ -40,9 +40,14 @@ class Permission(str, Enum):
     SYSTEM_CONFIG = "system:config"
 
 
+# 角色常量
+ROLE_ADMIN = "admin"
+ROLE_OPERATOR = "operator"
+ROLE_VIEWER = "viewer"
+
 # 角色权限映射
 ROLE_PERMISSIONS = {
-    UserRole.ADMIN: [
+    ROLE_ADMIN: [
         Permission.USER_READ,
         Permission.USER_WRITE,
         Permission.USER_DELETE,
@@ -64,7 +69,7 @@ ROLE_PERMISSIONS = {
         Permission.SYSTEM_RESTORE,
         Permission.SYSTEM_CONFIG,
     ],
-    UserRole.OPERATOR: [
+    ROLE_OPERATOR: [
         Permission.USER_READ,
         Permission.DRONE_READ,
         Permission.DRONE_WRITE,
@@ -79,7 +84,7 @@ ROLE_PERMISSIONS = {
         Permission.INSPECTION_READ,
         Permission.INSPECTION_WRITE,
     ],
-    UserRole.VIEWER: [
+    ROLE_VIEWER: [
         Permission.DRONE_READ,
         Permission.SKU_READ,
         Permission.VIDEO_READ,
@@ -139,18 +144,18 @@ def require_all_permissions(*permissions: Permission):
     return dependency
 
 
-def require_role(*roles: UserRole):
+def require_role(*roles: str):
     """需要特定角色"""
     def dependency(current_user: User = Depends(get_current_active_user)) -> User:
         if current_user.role not in roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Role required: one of {', '.join(r.value for r in roles)}"
+                detail=f"Role required: one of {', '.join(roles)}"
             )
         return current_user
     return dependency
 
 
 # 便捷依赖
-require_admin = require_role(UserRole.ADMIN)
-require_operator_or_above = require_role(UserRole.ADMIN, UserRole.OPERATOR)
+require_admin = require_role(ROLE_ADMIN)
+require_operator_or_above = require_role(ROLE_ADMIN, ROLE_OPERATOR)
