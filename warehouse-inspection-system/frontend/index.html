@@ -305,7 +305,8 @@
         <div class="nav-item" data-page="drones"><span class="icon">✈</span> 无人机</div>
         <div class="nav-item" data-page="tasks"><span class="icon">☰</span> 巡检任务</div>
         <div class="nav-item" data-page="records"><span class="icon">▤</span> 巡检记录</div>
-        <div class="nav-item" data-page="shelves"><span class="icon">▦</span> 货架管理</div>
+        <div class="nav-item" data-page="inbound"><span class="icon">⊟</span> 入库管理</div>
+    </div>    <div class="nav-item" data-page="shelves"><span class="icon">▦</span> 货架管理</div>
         <div class="nav-item" data-page="skus"><span class="icon">◎</span> SKU管理</div>
         <div class="nav-section">数据</div>
         <div class="nav-item" data-page="images"><span class="icon">▣</span> 图像管理</div>
@@ -446,7 +447,7 @@ function showApp() {
 // ═══════════════════ NAVIGATION ═══════════════════
 let currentPage = '';
 const pageTitles = {
-    dashboard:'实时看板', drones:'无人机管理', tasks:'巡检任务', records:'巡检记录',
+    dashboard:'实时看板', drones:'无人机管理', tasks:'巡检任务', records:'巡检记录', inbound:'入库管理',
     shelves:'货架管理', skus:'SKU管理', images:'图像管理', videos:'视频管理',
     gateway:'数据网关', system:'系统状态', rfid_settings:'RFID设置'
 };
@@ -1302,6 +1303,106 @@ async function rfidMonzaQT(action) {
         is_persistence: document.getElementById('rfs-qt-nv').checked,
     };
     try { const r = await api(`${API}/rfid/monza/qt`, {method:'POST', body:JSON.stringify(qt)}); toast(r.message); } catch(ex) { toast(ex.message,'error'); }
+}
+
+// ═══════════════════ PAGE: INBOUND ═══════════════════
+let inboundAutoRefresh = null;
+
+async function render_inbound(el) {
+    el.innerHTML = `
+        <div class="stat-row" id="ib-stats">
+            <div class="stat-item"><div class="stat-label">扫描状态</div><div class="stat-value c-red" id="ib-running">已停止</div></div>
+            <div class="stat-item"><div class="stat-label">标签已扫描</div><div class="stat-value" id="ib-scanned">0</div></div>
+            <div class="stat-item"><div class="stat-label">成功入库</div><div class="stat-value c-green" id="ib-created">0</div></div>
+            <div class="stat-item"><div class="stat-label">失败/错误</div><div class="stat-value" id="ib-errors">0</div></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
+            <button class="btn btn-primary" id="ib-btn-start" onclick="inboundStart()">开始入库</button>
+            <button class="btn btn-outline" id="ib-btn-stop" onclick="inboundStop()" style="display:none;">停止入库</button>
+            <span style="font-size:12px;color:var(--muted);" id="ib-time"></span>
+        </div>
+        <div class="col2">
+            <div class="panel">
+                <div class="panel-header"><span>入库流水</span> <button class="btn btn-ghost btn-sm" onclick="inboundLoadRecords()">刷新</button></div>
+                <div style="overflow-x:auto"><table><thead><tr><th>时间</th><th>EPC</th><th>货物</th><th>RSSI</th><th>状态</th></tr></thead><tbody id="ib-records"></tbody></table></div>
+            </div>
+            <div class="panel">
+                <div class="panel-header"><span>当前库存</span> <button class="btn btn-ghost btn-sm" onclick="inboundLoadInventory()">刷新</button></div>
+                <div style="overflow-x:auto"><table><thead><tr><th>EPC</th><th>货物</th><th>数量</th><th>最近读取</th></tr></thead><tbody id="ib-inventory"></tbody></table></div>
+            </div>
+        </div>`;
+    inboundLoadStatus();
+    inboundLoadRecords();
+    inboundLoadInventory();
+}
+
+async function inboundLoadStatus() {
+    try {
+        const r = await api(`${API}/inbound/status`);
+        const d = r.data;
+        const running = d.running;
+        document.getElementById('ib-running').textContent = running ? '扫描中...' : '已停止';
+        document.getElementById('ib-running').className = 'stat-value ' + (running ? 'c-green' : 'c-red');
+        document.getElementById('ib-scanned').textContent = d.tags_scanned || 0;
+        document.getElementById('ib-created').textContent = d.records_created || 0;
+        document.getElementById('ib-errors').textContent = d.errors || 0;
+        document.getElementById('ib-btn-start').style.display = running ? 'none' : '';
+        document.getElementById('ib-btn-stop').style.display = running ? '' : 'none';
+        if (running) {
+            document.getElementById('ib-time').textContent = '开始于: ' + (d.started_at ? new Date(d.started_at).toLocaleTimeString() : '-');
+            if (!inboundAutoRefresh) inboundAutoRefresh = setInterval(inboundAutoRefreshAll, 2000);
+        } else {
+            document.getElementById('ib-time').textContent = '';
+            if (inboundAutoRefresh) { clearInterval(inboundAutoRefresh); inboundAutoRefresh = null; }
+        }
+    } catch(e) { /* ignore */ }
+}
+
+async function inboundAutoRefreshAll() {
+    await inboundLoadStatus();
+    inboundLoadRecords();
+    inboundLoadInventory();
+}
+
+async function inboundStart() {
+    try { const r = await api(`${API}/inbound/start`, {method:'POST'}); toast(r.message); inboundLoadStatus(); } catch(ex) { toast(ex.message,'error'); }
+}
+
+async function inboundStop() {
+    try { const r = await api(`${API}/inbound/stop`, {method:'POST'}); toast(r.message); inboundLoadStatus(); } catch(ex) { toast(ex.message,'error'); }
+}
+
+async function inboundLoadRecords() {
+    try {
+        const r = await api(`${API}/inbound/records`);
+        const records = r.data?.records || [];
+        document.getElementById('ib-records').innerHTML = records.length === 0
+            ? '<tr class="empty-row"><td colspan="5">暂无入库记录</td></tr>'
+            : records.map(rr => `
+                <tr>
+                    <td style="font-size:12px;">${rr.created_at ? new Date(rr.created_at).toLocaleTimeString() : '-'}</td>
+                    <td style="font-family:monospace;font-size:12px;">${rr.epc}</td>
+                    <td>${rr.goods_name || '未注册'}</td>
+                    <td>${rr.rssi != null ? rr.rssi + ' dBm' : '-'}</td>
+                    <td>${badge(rr.status === 'success' ? '成功' : '失败', {success:'success', failed:'danger'})}</td>
+                </tr>`).join('');
+    } catch(e) { /* ignore */ }
+}
+
+async function inboundLoadInventory() {
+    try {
+        const r = await api(`${API}/inbound/inventory`);
+        const items = r.data?.items || [];
+        document.getElementById('ib-inventory').innerHTML = items.length === 0
+            ? '<tr class="empty-row"><td colspan="4">暂无库存数据</td></tr>'
+            : items.map(inv => `
+                <tr>
+                    <td style="font-family:monospace;font-size:12px;">${inv.epc || '-'}</td>
+                    <td>${inv.goods_name || '未知'}</td>
+                    <td>${inv.quantity}</td>
+                    <td style="font-size:12px;">${inv.last_read_at ? new Date(inv.last_read_at).toLocaleTimeString() : '-'}</td>
+                </tr>`).join('');
+    } catch(e) { /* ignore */ }
 }
 
 // ═══════════════════ INIT ═══════════════════
