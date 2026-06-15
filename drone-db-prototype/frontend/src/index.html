@@ -666,14 +666,25 @@ async function deleteRfid(id) { if (!confirm('确认删除？')) return; try { a
 
 // ═══════════════════ INIT ═══════════════════
 (async function init() {
-    // 1. 尝试恢复已有登录态
+    // 1. 尝试恢复已有登录态 — 先验证 token 有效性
     const savedToken = localStorage.getItem('drone_token');
     const savedUser = localStorage.getItem('drone_user');
     if (savedToken && savedUser) {
         TOKEN = savedToken;
-        USER = JSON.parse(savedUser);
-        showApp();
-        return;
+        try {
+            const verify = await fetch(`${API}/drones/`, {
+                headers: { 'Authorization': `Bearer ${TOKEN}` }
+            });
+            if (verify.ok) {
+                USER = JSON.parse(savedUser);
+                showApp();
+                return;
+            }
+        } catch(e) {}
+        // token 无效，清除并重新登录
+        localStorage.removeItem('drone_token');
+        localStorage.removeItem('drone_user');
+        TOKEN = '';
     }
 
     // 2. 尝试自动登录

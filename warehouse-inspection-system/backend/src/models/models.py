@@ -133,6 +133,7 @@ class RFIDTag(Base):
     id = Column(Integer, primary_key=True, index=True)
     tag_id = Column(String(100), unique=True, index=True, nullable=False, comment="标签UID")
     tag_type = Column(String(50), comment="标签类型")
+    sku_id = Column(Integer, ForeignKey("skus.id"), nullable=True, comment="关联SKU")
     shelf_id = Column(Integer, ForeignKey("shelves.id"), nullable=True, comment="关联货架")
     goods_name = Column(String(200), nullable=True, comment="货物名称")
     goods_quantity = Column(Integer, default=0, comment="货物数量")
@@ -142,6 +143,7 @@ class RFIDTag(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     # 关系
+    sku = relationship("SKU")
     shelf = relationship("Shelf", back_populates="rfid_tags")
     inspection_records = relationship("InspectionRecord", back_populates="rfid_tag")
 
@@ -394,6 +396,7 @@ class Inventory(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     rfid_tag_id = Column(Integer, ForeignKey("rfid_tags.id"), unique=True, nullable=False, comment="RFID标签ID")
+    sku_id = Column(Integer, ForeignKey("skus.id"), nullable=True, comment="关联SKU")
     goods_name = Column(String(200), nullable=True, comment="货物名称（冗余自rfid_tags）")
     shelf_id = Column(Integer, ForeignKey("shelves.id"), nullable=True, comment="当前所在货架")
     quantity = Column(Integer, default=0, comment="当前库存数量")
@@ -403,6 +406,7 @@ class Inventory(Base):
 
     # 关系
     rfid_tag = relationship("RFIDTag")
+    sku = relationship("SKU")
     shelf = relationship("Shelf")
 
 
@@ -413,6 +417,7 @@ class InboundRecord(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     rfid_tag_id = Column(Integer, ForeignKey("rfid_tags.id"), nullable=True, comment="关联RFID标签(未注册时为空)")
+    sku_id = Column(Integer, ForeignKey("skus.id"), nullable=True, comment="关联SKU")
     epc = Column(String(100), nullable=False, index=True, comment="读到的EPC标签号")
     goods_name = Column(String(200), nullable=True, comment="货物名称")
     shelf_id = Column(Integer, ForeignKey("shelves.id"), nullable=True, comment="货架")

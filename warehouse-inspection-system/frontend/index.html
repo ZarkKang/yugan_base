@@ -306,7 +306,7 @@
         <div class="nav-item" data-page="tasks"><span class="icon">☰</span> 巡检任务</div>
         <div class="nav-item" data-page="records"><span class="icon">▤</span> 巡检记录</div>
         <div class="nav-item" data-page="inbound"><span class="icon">⊟</span> 入库管理</div>
-    </div>    <div class="nav-item" data-page="shelves"><span class="icon">▦</span> 货架管理</div>
+    <div class="nav-item" data-page="shelves"><span class="icon">▦</span> 货架管理</div>
         <div class="nav-item" data-page="skus"><span class="icon">◎</span> SKU管理</div>
         <div class="nav-section">数据</div>
         <div class="nav-item" data-page="images"><span class="icon">▣</span> 图像管理</div>
@@ -718,7 +718,19 @@ async function deleteShelf(id) { if (!confirm('确认删除该货架？')) retur
 async function render_skus(el) {
     el.innerHTML = `
         <div class="panel"><div class="panel-header"><span>SKU 列表</span><span class="count" id="sku-count"></span></div>
-        <div style="overflow-x:auto"><table><thead><tr><th>SKU</th><th>预期位置</th><th>库存数量</th><th>操作</th></tr></thead><tbody id="sku-tbody"></tbody></table></div></div>`;
+        <div style="overflow-x:auto"><table><thead><tr><th>SKU</th><th>名称</th><th>位置</th><th>数量</th><th>操作</th></tr></thead><tbody id="sku-tbody"></tbody></table></div></div>
+        <div id="rfid-bind-modal" class="modal" style="display:none"><div class="modal-bg" onclick="closeBindModal()"></div><div class="modal-card"><div class="modal-header">RFID标签绑定 <span class="close" onclick="closeBindModal()">✕</span></div>
+        <div style="padding:16px">
+            <input type="hidden" id="bind-sku-id">
+            <div class="field"><label>SKU名称</label><input type="text" id="bind-sku-name" readonly></div>
+            <div class="field"><label>货架ID (可选)</label><input type="number" id="bind-shelf-id" value="1"></div>
+            <div class="field"><label>数量</label><input type="number" id="bind-quantity" value="1"></div>
+            <div style="margin-top:12px;display:flex;gap:8px;">
+                <button class="btn btn-primary" onclick="doRFIDBind()">扫描并绑定</button>
+                <button class="btn btn-outline" onclick="closeBindModal()">取消</button>
+            </div>
+            <div id="bind-result" style="margin-top:8px;font-size:13px;"></div>
+        </div></div></div>`;
     await loadSKUs();
 }
 
@@ -729,10 +741,11 @@ async function loadSKUs() {
         document.getElementById('sku-count').textContent = `${data?.data?.total||skus.length} 个`;
         document.getElementById('sku-tbody').innerHTML = skus.length ? skus.map(s => `
             <tr>
-                <td class="mono">${s.sku}</td><td>${s.expected_location||'-'}</td><td>${s.total_count}</td>
-                <td><button class="btn btn-outline btn-sm" onclick="viewSKUDetail('${s.sku}')">详情</button></td>
-            </tr>`).join('') : '<tr class="empty-row"><td colspan="4">暂无SKU数据（需先执行巡检任务）</td></tr>';
-    } catch(e) { document.getElementById('sku-tbody').innerHTML = `<tr class="empty-row"><td colspan="4">加载失败: ${e.message}</td></tr>`; }
+                <td class="mono">${s.sku}</td><td>${s.sku_name||'-'}</td><td>${s.expected_location||'-'}</td><td>${s.total_count||0}</td>
+                <td><button class="btn btn-outline btn-sm" onclick="viewSKUDetail('${s.sku}')">详情</button>
+                <button class="btn btn-outline btn-sm" style="color:var(--accent);border-color:var(--accent);margin-left:4px" onclick="openRFIDBind('${s.id||s.sku}','${s.sku_name||s.sku}')">绑定RFID</button></td>
+            </tr>`).join('') : '<tr class="empty-row"><td colspan="5">暂无SKU数据</td></tr>';
+    } catch(e) { document.getElementById('sku-tbody').innerHTML = `<tr class="empty-row"><td colspan="5">加载失败: ${e.message}</td></tr>`; }
 }
 
 async function viewSKUDetail(sku) {
@@ -746,6 +759,42 @@ async function viewSKUDetail(sku) {
         document.getElementById('image-detail-content').innerHTML = html;
         openModal('modal-image');
     } catch(ex) { toast(ex.message,'error'); }
+}
+
+// RFID 绑定相关
+function openRFIDBind(skuId, skuName) {
+    document.getElementById('bind-sku-id').value = skuId;
+    document.getElementById('bind-sku-name').value = skuName;
+    document.getElementById('bind-result').innerHTML = '';
+    document.getElementById('rfid-bind-modal').style.display = 'flex';
+}
+
+function closeBindModal() {
+    document.getElementById('rfid-bind-modal').style.display = 'none';
+}
+
+async function doRFIDBind() {
+    const skuId = parseInt(document.getElementById('bind-sku-id').value);
+    const shelfId = parseInt(document.getElementById('bind-shelf-id').value) || 1;
+    const quantity = parseInt(document.getElementById('bind-quantity').value) || 1;
+    const resultDiv = document.getElementById('bind-result');
+
+    resultDiv.innerHTML = '<span style="color:var(--accent)">正在扫描RFID标签，请将标签靠近读卡器...</span>';
+    try {
+        const data = await api(`${API}/rfid/bind`, {
+            method: 'POST',
+            body: JSON.stringify({ sku_id: skuId, shelf_id: shelfId, quantity: quantity })
+        });
+        if (data.success) {
+            resultDiv.innerHTML = `<span style="color:var(--green)">绑定成功! EPC=${data.data.epc} - ${data.data.goods_name}</span>`;
+            toast('RFID绑定成功');
+            setTimeout(closeBindModal, 2000);
+        } else {
+            resultDiv.innerHTML = `<span style="color:var(--red)">${data.message}</span>`;
+        }
+    } catch(e) {
+        resultDiv.innerHTML = `<span style="color:var(--red)">绑定失败: ${e.message}</span>`;
+    }
 }
 
 // ═══════════════════ PAGE: IMAGES ═══════════════════
@@ -1407,14 +1456,25 @@ async function inboundLoadInventory() {
 
 // ═══════════════════ INIT ═══════════════════
 (async function init() {
-    // 1. 尝试恢复已有登录态
+    // 1. 尝试恢复已有登录态 — 先验证 token 有效性
     const savedToken = localStorage.getItem('yg_token');
     const savedUser = localStorage.getItem('yg_user');
     if (savedToken && savedUser) {
         TOKEN = savedToken;
-        USER = JSON.parse(savedUser);
-        showApp();
-        return;
+        try {
+            const verify = await fetch(`${API}/auth/me`, {
+                headers: { 'Authorization': `Bearer ${TOKEN}` }
+            });
+            if (verify.ok) {
+                USER = JSON.parse(savedUser);
+                showApp();
+                return;
+            }
+        } catch(e) {}
+        // token 无效，清除并重新登录
+        localStorage.removeItem('yg_token');
+        localStorage.removeItem('yg_user');
+        TOKEN = '';
     }
 
     // 2. 尝试自动登录

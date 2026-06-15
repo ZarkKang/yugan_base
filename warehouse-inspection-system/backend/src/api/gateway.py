@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from ..db.database import get_db, SessionLocal
 from ..models.models import (
-    Drone, Task, ImageRecord, InspectionRecord, RFIDTag,
+    Drone, Task, ImageRecord, InspectionRecord, RFIDTag, SKU, Inventory,
     InspectionStatus
 )
 from ..schemas.schemas import (
@@ -177,21 +177,46 @@ def _process_background_task(item: dict):
 # ── 3. 数据类型处理器 ──────────────────────────────
 
 def _handle_rfid_data(drone: Drone, request: DataReceiveRequest, db: Session) -> Optional[int]:
-    """处理RFID标签数据"""
+    """
+    处理RFID标签数据 — 无人机巡检回传。
+    流程:
+      1. 解析 payload 获取 EPC 列表
+      2. 查 RFIDTag → 获取 sku_id, goods_name, shelf_id
+      3. 存入 InspectionRecord (含解析后的结构化数据)
+      4. 更新无人机位置
+    """
     try:
         tags = json.loads(request.payload) if isinstance(request.payload, str) else request.payload
         if not isinstance(tags, list):
             tags = [tags]
     except (json.JSONDecodeError, TypeError):
-        # 尝试作为单个标签ID处理
         tags = [request.payload]
+
+    # 解析每个EPC → 查RFIDTag获取SKU信息
+    resolved_tags = []  # 结构化: [{"epc":..., "sku_id":..., "goods_name":..., "shelf_id":...}]
+    for epc in tags:
+        rfid_tag = db.query(RFIDTag).filter(RFIDTag.tag_id == epc).first()
+        if rfid_tag and rfid_tag.sku_id:
+            resolved_tags.append({
+                "epc": epc,
+                "sku_id": rfid_tag.sku_id,
+                "goods_name": rfid_tag.goods_name,
+                "shelf_id": rfid_tag.shelf_id,
+            })
+        else:
+            resolved_tags.append({
+                "epc": epc,
+                "sku_id": None,
+                "goods_name": rfid_tag.goods_name if rfid_tag else None,
+                "shelf_id": None,
+            })
 
     # 存入巡检记录
     record = InspectionRecord(
         record_code=f"RFID_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')[:-3]}",
         drone_id=drone.id,
         rfid_data=json.dumps(tags, ensure_ascii=False),
-        detected_rfid_tags=json.dumps(tags, ensure_ascii=False),
+        detected_rfid_tags=json.dumps(resolved_tags, ensure_ascii=False),
         status=InspectionStatus.PENDING,
         drone_position_x=request.position_x,
         drone_position_y=request.position_y,
@@ -202,10 +227,10 @@ def _handle_rfid_data(drone: Drone, request: DataReceiveRequest, db: Session) ->
     db.commit()
     db.refresh(record)
 
-    # 更新无人机最后位置
     _update_drone_position(drone, request, db)
 
-    logger.info(f"[Gateway] RFID数据已存储: {len(tags)} 个标签 (drone={drone.drone_code})")
+    resolved_count = sum(1 for t in resolved_tags if t["sku_id"])
+    logger.info(f"[Gateway] RFID数据: {len(tags)} 标签, {resolved_count} 已识别 (drone={drone.drone_code})")
     return record.id
 
 
@@ -537,3 +562,86 @@ def _update_drone_position(drone: Drone, request: DataReceiveRequest, db: Sessio
     if updated:
         drone.last_seen = datetime.utcnow()
         db.commit()
+
+
+# ── 6. 巡检差异对比 ─────────────────────────────────
+
+@router.get("/inspection/compare")
+def compare_inspection_results(
+    drone_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    巡检差异对比: 取最近两次巡检记录，对比标签变化。
+    
+    返回:
+    - current: 当次扫描到的标签列表
+    - previous: 上一次扫描到的标签列表
+    - missing: 上次有、这次没有 (缺货)
+    - extra: 上次没有、这次有 (多货)
+    """
+    records = (
+        db.query(InspectionRecord)
+        .filter(InspectionRecord.drone_id == drone_id)
+        .filter(InspectionRecord.rfid_data.isnot(None))
+        .order_by(InspectionRecord.inspection_time.desc())
+        .limit(2)
+        .all()
+    )
+
+    if len(records) < 2:
+        return APIResponse(success=True, message="巡检次数不足，需要至少2次记录才能对比", data={
+            "current": len(records),
+            "previous": 0,
+            "missing": [],
+            "extra": [],
+        })
+
+    current = records[0]
+    previous = records[1]
+
+    # 解析检测到的标签
+    def parse_tags(record):
+        try:
+            data = json.loads(record.detected_rfid_tags)
+            if data and isinstance(data[0], dict):
+                # 新格式: 结构化数据
+                return [t["epc"] for t in data]
+            # 旧格式: 纯EPC列表
+            return data
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    current_epcs = set(parse_tags(current))
+    previous_epcs = set(parse_tags(previous))
+
+    missing = list(previous_epcs - current_epcs)
+    extra = list(current_epcs - previous_epcs)
+
+    # 解析为结构化
+    def resolve_epcs(epcs):
+        result = []
+        for epc in epcs:
+            tag = db.query(RFIDTag).filter(RFIDTag.tag_id == epc).first()
+            result.append({
+                "epc": epc,
+                "sku_id": tag.sku_id if tag else None,
+                "goods_name": tag.goods_name if tag else None,
+            })
+        return result
+
+    return APIResponse(success=True, message="对比完成", data={
+        "current": {
+            "record_id": current.id,
+            "time": str(current.inspection_time),
+            "tags": resolve_epcs(current_epcs),
+        },
+        "previous": {
+            "record_id": previous.id,
+            "time": str(previous.inspection_time),
+            "tags": resolve_epcs(previous_epcs),
+        },
+        "missing": resolve_epcs(missing),
+        "extra": resolve_epcs(extra),
+        "summary": f"异常: 缺货 {len(missing)} 个, 多货 {len(extra)} 个",
+    })

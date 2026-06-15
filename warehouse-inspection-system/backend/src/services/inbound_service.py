@@ -12,7 +12,7 @@ from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
 
 from ..db.database import SessionLocal
-from ..models.models import RFIDTag, Inventory, InboundRecord
+from ..models.models import RFIDTag, Inventory, InboundRecord, SKU
 from ..hardware.rfid_reader import get_rfid_reader, RFIDTag as HWTag
 
 logger = logging.getLogger(__name__)
@@ -128,7 +128,7 @@ class InboundService:
     def _process_tag(self, db: Session, epc: str, rssi: Optional[int]):
         """
         事务内处理单个标签:
-          1. 查 RFIDTag 表 (tag_id == epc) → 获取 goods_name, shelf_id
+          1. 查 RFIDTag 表 (tag_id == epc) → 获取 sku_id, goods_name, shelf_id
           2. 若未注册 → 仅写入库失败记录
           3. 若已注册 → 更新 Inventory (quantity++, last_read_at)
                       → 写入库成功记录
@@ -149,12 +149,14 @@ class InboundService:
 
         goods_name = rfid_tag.goods_name
         shelf_id = rfid_tag.shelf_id
+        sku_id = rfid_tag.sku_id
 
         # UPSERT Inventory
         inv = db.query(Inventory).filter(Inventory.rfid_tag_id == rfid_tag.id).first()
         if inv is None:
             inv = Inventory(
                 rfid_tag_id=rfid_tag.id,
+                sku_id=sku_id,
                 goods_name=goods_name,
                 shelf_id=shelf_id,
                 quantity=1,
@@ -164,12 +166,14 @@ class InboundService:
         else:
             inv.quantity += 1
             inv.last_read_at = datetime.now(timezone.utc)
+            inv.sku_id = sku_id
             inv.goods_name = goods_name
             inv.shelf_id = shelf_id
 
         # INSERT InboundRecord
         record = InboundRecord(
             rfid_tag_id=rfid_tag.id,
+            sku_id=sku_id,
             epc=epc,
             goods_name=goods_name,
             shelf_id=shelf_id,
@@ -180,7 +184,7 @@ class InboundService:
         )
         db.add(record)
 
-        logger.info(f"[入库] EPC={epc} → {goods_name}, 库存+1")
+        logger.info(f"[入库] EPC={epc} → SKU#{sku_id} {goods_name}, 库存+1")
 
 
 # ═══════════════════════════════════════════════════════════

@@ -6,8 +6,8 @@ class Settings(BaseSettings):
     # Database — 与仓库巡检系统共用 PostgreSQL
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
-    POSTGRES_USER: str = "postgres"
-    POSTGRES_PASSWORD: str = "postgres"
+    POSTGRES_USER: str = "warehouse_admin"
+    POSTGRES_PASSWORD: str = "warehouse123"
     POSTGRES_DB: str = "warehouse_inspection"
     DATABASE_URL: str = ""  # 留空则自动生成
 

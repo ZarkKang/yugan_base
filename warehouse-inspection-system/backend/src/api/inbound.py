@@ -7,7 +7,7 @@ from sqlalchemy import desc
 from ..schemas.schemas import APIResponse
 from ..services.inbound_service import get_inbound_service
 from ..models.models import InboundRecord, Inventory, RFIDTag
-from ..core.database import get_db
+from ..db.database import get_db
 
 router = APIRouter(prefix="/inbound", tags=["RFID入库"])
 

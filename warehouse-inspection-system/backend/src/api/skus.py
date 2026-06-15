@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from ..db.database import get_db
-from ..models.models import InventoryItem
+from ..models.models import InventoryItem, SKU as SKUModel, RFIDTag
 from ..schemas.schemas import APIResponse
 
 router = APIRouter(prefix="/skus", tags=["SKU管理"])
@@ -18,29 +18,57 @@ def list_skus(
     status: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """获取SKU列表（从库存物品聚合）"""
-    query = db.query(InventoryItem.sku, InventoryItem.expected_location).filter(InventoryItem.sku.isnot(None))
-    if status:
-        query = query.filter(InventoryItem.status == status)
-
-    # 去重统计
-    skus = query.distinct().offset((page-1)*page_size).limit(page_size).all()
-    total = query.distinct().count()
-
+    """获取SKU列表（合并主数据表 + 巡检库存数据）"""
     items = []
-    for sku, location in skus:
-        count = db.query(InventoryItem).filter(InventoryItem.sku == sku).count()
+
+    # 1. 从 SKU 主数据表获取
+    sku_query = db.query(SKUModel).filter(SKUModel.is_active == True)
+    all_skus = sku_query.order_by(SKUModel.id).all()
+
+    # 收集已有 SKU 编码用于去重
+    seen_codes = set()
+    for s in all_skus:
         items.append({
-            "sku": sku,
-            "expected_location": location,
-            "total_count": count,
+            "id": s.id,
+            "sku": s.sku_code,
+            "sku_name": s.name,
+            "category": s.category,
+            "description": s.description,
+            "unit": s.unit,
+            "expected_location": None,
+            "total_count": 0,
+            "has_rfid": db.query(RFIDTag).filter(RFIDTag.sku_id == s.id).count() > 0,
         })
+        seen_codes.add(s.sku_code)
+
+    # 2. 从 InventoryItem 补充（巡检发现的 SKU，可能不在主数据表中）
+    inv_query = db.query(InventoryItem.sku, InventoryItem.expected_location).filter(InventoryItem.sku.isnot(None))
+    if status:
+        inv_query = inv_query.filter(InventoryItem.status == status)
+    inv_skus = inv_query.distinct().all()
+    for sku_code, location in inv_skus:
+        if sku_code not in seen_codes:
+            count = db.query(InventoryItem).filter(InventoryItem.sku == sku_code).count()
+            items.append({
+                "id": None,
+                "sku": sku_code,
+                "sku_name": None,
+                "category": None,
+                "description": None,
+                "unit": None,
+                "expected_location": location,
+                "total_count": count,
+                "has_rfid": False,
+            })
+
+    total = len(items)
+    paged = items[(page-1)*page_size: page*page_size]
 
     return APIResponse(success=True, data={
         "total": total,
         "page": page,
         "page_size": page_size,
-        "items": items,
+        "items": paged,
     })
 
 

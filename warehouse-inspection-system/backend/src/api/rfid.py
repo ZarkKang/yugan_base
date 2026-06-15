@@ -9,6 +9,9 @@ RFID API路由 - 读取/写入标签数据 (PRE系列 UHF 模块)
   POST /api/v1/rfid/scan/stop      停止连续扫描
   POST /api/v1/rfid/scan/clear     清空标签缓存
   GET  /api/v1/rfid/tags           获取已扫描标签列表
+  POST /api/v1/rfid/bind           绑定SKU到RFID标签 (写标签+注册数据库)
+  POST /api/v1/rfid/verify         验证标签绑定 (读标签+查数据库)
+  GET  /api/v1/rfid/registered-tags 列出所有已注册标签
   POST /api/v1/rfid/lock           锁定/解锁标签内存
   POST /api/v1/rfid/kill           杀死标签
   GET  /api/v1/rfid/power          获取发射功率
@@ -18,12 +21,16 @@ RFID API路由 - 读取/写入标签数据 (PRE系列 UHF 模块)
 """
 import logging
 import sys
+from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
-from ..hardware.rfid_reader import get_rfid_reader, RFIDTag
+from ..hardware.rfid_reader import get_rfid_reader, RFIDTag as RFIDTagHW
 from ..hardware.serial import list_available_ports
+from ..models.models import RFIDTag as RFIDTagDB, SKU
+from ..db.database import get_db
 from ..schemas.schemas import APIResponse
 
 logger = logging.getLogger(__name__)
@@ -325,6 +332,174 @@ def set_region(req: RegionRequest):
             raise HTTPException(status_code=503, detail="RFID未连接")
     reader.set_region(req.region)
     return APIResponse(success=True, message=f"地区已设为 0x{req.region:02X}")
+
+
+# ═══════════════════════════════════════════════════════════
+#  SKU绑定RFID标签（基站端核心操作）
+# ═══════════════════════════════════════════════════════════
+
+class BindRequest(BaseModel):
+    sku_id: int = Field(..., description="SKU ID — 将标签绑定到此商品")
+    goods_name: Optional[str] = None
+    shelf_id: Optional[int] = None
+    quantity: int = 1
+
+
+class VerifyRequest(BaseModel):
+    tag_id: Optional[str] = Field(None, description="指定标签ID, 留空读取当前标签")
+
+
+@router.post("/bind")
+def bind_sku_to_tag(req: BindRequest, db: Session = Depends(get_db)):
+    """
+    基站端: 将SKU绑定到RFID标签
+    流程: 1.查SKU → 2.扫描标签获取EPC → 3.写入SKU编码到标签 → 4.注册RFIDTag表
+    返回: 绑定的EPC和SKU信息
+    """
+    # 0. 验证 SKU 存在
+    sku = db.query(SKU).filter(SKU.id == req.sku_id).first()
+    if not sku:
+        return APIResponse(success=False, message=f"SKU不存在: id={req.sku_id}", data=None)
+
+    goods_name = req.goods_name or sku.name
+
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接，请先调用 /rfid/connect")
+
+    # 1. 扫描标签获取 EPC
+    tag = reader.read_single_tag(timeout=3.0)
+    if tag is None:
+        return APIResponse(success=False, message="未检测到RFID标签，请将标签靠近读卡器后重试", data=None)
+
+    epc = tag.tag_id
+    rssi = tag.rssi
+    logger.info(f"[RFID Bind] 检测到标签 EPC={epc}, RSSI={rssi}")
+
+    # 2. 写入SKU名称到标签User内存区
+    data = goods_name.encode("utf-8")
+    ok = reader.write_tag(data=data, tag_id=epc, mem_bank=3, start_addr=0)
+    if not ok:
+        return APIResponse(success=False, message=f"写入标签失败: EPC={epc}", data={"epc": epc})
+
+    logger.info(f"[RFID Bind] 写入成功 EPC={epc} → SKU#{sku.id} {goods_name}")
+
+    # 3. 注册到 RFIDTag 数据库表
+    try:
+        existing = db.query(RFIDTagDB).filter(RFIDTagDB.tag_id == epc).first()
+        if existing:
+            existing.sku_id = req.sku_id
+            existing.goods_name = goods_name
+            existing.shelf_id = req.shelf_id
+            existing.goods_quantity = req.quantity
+            existing.tag_type = "UHF-GEN2"
+            existing.last_read_time = datetime.utcnow()
+            existing.last_read_strength = rssi
+            msg = f"标签已更新: EPC={epc} → SKU#{sku.id} {goods_name}"
+        else:
+            new_tag = RFIDTagDB(
+                tag_id=epc,
+                tag_type="UHF-GEN2",
+                sku_id=req.sku_id,
+                goods_name=goods_name,
+                goods_quantity=req.quantity,
+                shelf_id=req.shelf_id,
+                last_read_strength=rssi,
+            )
+            db.add(new_tag)
+            msg = f"绑定成功: EPC={epc} → SKU#{sku.id} {goods_name}"
+        db.commit()
+        logger.info(f"[RFID Bind] {msg}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[RFID Bind] 数据库注册失败: {e}")
+        return APIResponse(success=False, message=f"数据库注册失败: {e}", data={"epc": epc})
+
+    return APIResponse(success=True, message=msg, data={
+        "epc": epc,
+        "sku_id": req.sku_id,
+        "goods_name": goods_name,
+        "rssi": rssi,
+        "shelf_id": req.shelf_id,
+        "quantity": req.quantity,
+    })
+
+
+@router.post("/verify")
+def verify_tag_binding(req: VerifyRequest, db: Session = Depends(get_db)):
+    """
+    基站端: 读取标签并验证与数据库的绑定是否匹配
+    可用于: (1)基站自测 (2)无人机扫描后回传EPC验证
+    """
+    reader = get_rfid_reader()
+    if not reader.is_connected():
+        if not reader.connect():
+            raise HTTPException(status_code=503, detail="RFID未连接")
+
+    # 读取标签
+    tag = reader.read_single_tag(timeout=3.0)
+    if tag is None:
+        return APIResponse(success=False, message="未检测到标签", data=None)
+
+    epc = tag.tag_id
+    rssi = tag.rssi
+
+    # 读标签 User 内存区获取写入的 SKU 标识
+    try:
+        user_data = reader.read_tag_data(mem_bank=3, start_addr=0, word_count=32)
+        goods_from_tag = bytes(user_data).decode("utf-8", errors="replace").strip("\x00").strip() if user_data else ""
+    except Exception:
+        goods_from_tag = ""
+
+    # 查数据库
+    record = db.query(RFIDTagDB).filter(RFIDTagDB.tag_id == epc).first()
+    if record:
+        return APIResponse(success=True, message="验证成功: 标签已注册", data={
+            "epc": epc,
+            "rssi": rssi,
+            "sku_id": record.sku_id,
+            "tag_goods_name": goods_from_tag,
+            "registered_goods_name": record.goods_name,
+            "shelf_id": record.shelf_id,
+            "quantity": record.goods_quantity,
+            "match": goods_from_tag == record.goods_name,
+        })
+    else:
+        return APIResponse(success=True, message="标签未在数据库中注册", data={
+            "epc": epc,
+            "rssi": rssi,
+            "tag_goods_name": goods_from_tag,
+            "registered_goods_name": None,
+            "registered": False,
+        })
+
+
+@router.get("/registered-tags")
+def get_registered_tags(db: Session = Depends(get_db)):
+    """基站端: 列出所有已注册的RFID标签 (RFIDTag表全量)"""
+    try:
+        tags = db.query(RFIDTagDB).order_by(RFIDTagDB.created_at.desc()).all()
+        return APIResponse(success=True, data={
+            "total": len(tags),
+            "tags": [
+                {
+                    "id": t.id,
+                    "tag_id": t.tag_id,
+                    "tag_type": t.tag_type,
+                    "goods_name": t.goods_name,
+                    "goods_quantity": t.goods_quantity,
+                    "shelf_id": t.shelf_id,
+                    "last_read_time": str(t.last_read_time) if t.last_read_time else None,
+                    "last_read_strength": t.last_read_strength,
+                    "created_at": str(t.created_at) if t.created_at else None,
+                }
+                for t in tags
+            ]
+        })
+    except Exception as e:
+        logger.error(f"[RFID] 查询注册标签失败: {e}")
+        return APIResponse(success=False, message=f"查询失败: {e}", data={"tags": []})
 
 
 # ═══════════════════════════════════════════════════════════
