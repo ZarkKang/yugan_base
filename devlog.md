@@ -1,5 +1,51 @@
 # 域感智能 开发日志
 
+## 2026-06-15 P0: Gateway 端到端测试 + 模拟器全流程测试 + EPC 种子数据
+- **类型**：[测试] + [数据填充]
+- **影响范围**：warehouse-inspection-system
+- **详细内容**：
+  1. **Gateway 端到端测试**（`tests/test_gateway.py`）：14 个测试用例，覆盖全部 3 个端点（`POST /gateway/receive`、`POST /gateway/qrcode/process`、`POST /gateway/rfid/read`）。测试范围含 RFID/QR/SBUS/视频/图像五种数据类型接收、无人机不存在 404、无效数据类型 400、单标签处理、InspectionRecord 字段正确性验证、后台处理器启动、二维码识别无输入/文件不存在场景、RFID 读卡器未连接/无标签/有标签场景。使用 SQLite 内存数据库 + FastAPI TestClient + mock RFID 驱动。
+  2. **模拟器全流程测试**（`tests/test_simulator.py`）：9 个测试用例，模拟无人机端 8 步完整巡检流程（健康检查→心跳→获取任务→接收任务→获取航点→上传图像→完成任务→查看详情→全流程端到端）。使用 SQLite 内存数据库，自动创建测试无人机、任务、航点。
+  3. **EPC→商品映射种子数据**（`tools/seed_rfid_tags.py`）：30 条预置 EPC→商品映射，覆盖 5 个大类（电子产品/日用品/食品饮料/办公用品/服装），自动创建关联货架。支持 `--seed`（默认填充）、`--export`（导出 JSON）、`--import-file`（从 JSON 导入）三种模式。
+- **相关文件**：
+  - `warehouse-inspection-system/backend/tests/test_gateway.py`（新增，14 个用例）
+  - `warehouse-inspection-system/backend/tests/test_simulator.py`（新增，9 个用例）
+  - `warehouse-inspection-system/backend/tools/seed_rfid_tags.py`（新增，30 条映射）
+- **后续动作**：部署到 VM 运行 pytest 验证；RFID 串口硬件验证仍需真机；RuntimeWarning 等已知日志正常。
+
+---
+
+## 2026-06-15 P3 - 数据库统一：两个系统共用 PostgreSQL
+- **类型**：[架构变更] + [配置]
+- **影响范围**：全局（drone-db-prototype + warehouse-inspection-system）
+- **详细内容**：
+  1. **drone-db-prototype 从 SQLite 迁移到 PostgreSQL**：配置文件 `config.py` 改为自动生成 PostgreSQL 连接串，`database.py` 添加连接池配置；移除 SQLite 专属的 `check_same_thread` 参数。
+  2. **Drone 表字段合并**：仓库巡检系统的 `drones` 表新增 `manufacturer`、`latitude/longitude/altitude`（GPS坐标）、`max_speed/max_altitude/flight_duration`（飞行参数）、`sku_id`（FK→skus）、`owner_id`（FK→users）、`description`、`is_active` 等字段，保留 `battery_level`、`last_position_x/y/z`、`last_seen` 等仓库巡检字段。两个系统共用同一张 `drones` 表。
+  3. **新增共享表**：仓库巡检系统新增 `skus`、`video_data`、`image_data`、`rfid_data` 四张表（从无人机数据系统迁入），实现 SKU 管理、视频/图片/RFID 读取数据统一存储。
+  4. **User 表对齐**：统一 `users` 表字段（`username`、`email`（可选）、`hashed_password`、`full_name`、`role`（String）、`is_active`），添加 `drones` 反向关系。
+  5. **Enum→String 迁移**：无人机数据系统移除 `DroneStatus` 和 `UserRole` 枚举类，状态和角色改用纯字符串存储，与仓库巡检系统保持一致。同步更新 `permissions.py`、`schemas/`、`routers/` 中所有引用。
+  6. **启动顺序调整**：`启动.sh` 改为先启动仓库巡检系统（8001，Schema 持有者），再启动无人机数据系统（8000）。守护进程也同步调整。
+  7. **引导脚本更新**：`引导.sh` 的 `db_list_tables()` 移除 SQLite 引用，`init_database()` 和 `reset_database()` 使用 `postgres` 用户，标注两个系统共用 `warehouse_inspection` 数据库。
+- **相关文件**：
+  - `warehouse-inspection-system/backend/src/models/models.py`（Drone 合并 + 新增 SKU/VideoData/ImageData/RFIDData）
+  - `drone-db-prototype/backend/app/core/config.py`（SQLite→PostgreSQL）
+  - `drone-db-prototype/backend/app/core/database.py`（连接池配置）
+  - `drone-db-prototype/backend/app/models/drone.py`（对齐字段 + Enum→String）
+  - `drone-db-prototype/backend/app/models/user.py`（对齐字段 + Enum→String）
+  - `drone-db-prototype/backend/app/models/__init__.py`（移除枚举导出）
+  - `drone-db-prototype/backend/app/core/permissions.py`（UserRole→字符串常量）
+  - `drone-db-prototype/backend/app/schemas/drone.py`（DroneStatus→str）
+  - `drone-db-prototype/backend/app/schemas/user.py`（UserRole→str）
+  - `drone-db-prototype/backend/app/routers/drones.py`（移除枚举引用）
+  - `drone-db-prototype/backend/app/main.py`（create_all 安全化）
+  - `drone-db-prototype/backend/.env.example`（PostgreSQL 连接串）
+  - `drone-db-prototype/backend/.env.example.linux`（PostgreSQL 连接串）
+  - `启动.sh`（启动顺序调整）
+  - `引导.sh`（移除 SQLite 引用 + 数据库初始化对齐）
+- **后续动作**：部署到 VM 验证数据库表创建和两个系统数据一致性；清理旧 SQLite 文件 `yugan.db`。
+
+---
+
 ## 2026-06-14 部署脚本增强：RFID 串口权限自动配置 + 全系统启动验证
 - **类型**：[新增功能] + [修复] + [配置]
 - **影响范围**：全局（部署脚本 + 引导菜单 + 启动脚本）
