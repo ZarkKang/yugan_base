@@ -14,7 +14,7 @@ from .core.config import settings
 from .db.database import init_db, engine
 from .db.redis import redis_client
 from .db.seed import seed_data
-from .api import auth, inspection, drones, gateway, images, rfid, system, dashboard, shelves, skus, videos, inbound
+from .api import auth, inspection, drones, gateway, images, rfid, system, dashboard, shelves, skus, videos, inbound, drone_integration
 from .core.exceptions import (
     validation_exception_handler,
     http_exception_handler,
@@ -50,12 +50,26 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("Redis连接失败，将使用本地队列")
 
+    # 启动自动化任务调度器
+    try:
+        from .services.automated_task import get_scheduler
+        get_scheduler().start()
+        logger.info("自动化任务调度器已启动")
+    except Exception as e:
+        logger.warning(f"自动化任务调度器启动失败: {e}")
+
     yield
 
     # 关闭时 — 优雅停止入库服务
     try:
         from .services.inbound_service import get_inbound_service
         get_inbound_service().stop()
+    except Exception:
+        pass
+    # 停止自动化任务调度器
+    try:
+        from .services.automated_task import get_scheduler
+        get_scheduler().stop()
     except Exception:
         pass
     redis_client.disconnect()
@@ -105,6 +119,7 @@ app.include_router(shelves.router, prefix="/api/v1")
 app.include_router(skus.router, prefix="/api/v1")
 app.include_router(videos.router, prefix="/api/v1")
 app.include_router(inbound.router, prefix="/api/v1")
+app.include_router(drone_integration.router, prefix="/api/v1")
 
 
 @app.get("/", response_class=HTMLResponse)

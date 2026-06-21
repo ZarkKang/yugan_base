@@ -198,12 +198,13 @@ class TaskResponse(TaskBase):
 class DataReceiveRequest(BaseModel):
     """数据接收请求"""
     drone_code: str
-    data_type: str = Field(..., description="数据类型: sbus/rfid/qr_code/video")
+    data_type: str = Field(..., description="数据类型: sbus/rfid/qr_code/video/image")
     payload: str = Field(..., description="数据载荷")
     timestamp: Optional[datetime] = None
     position_x: Optional[float] = None
     position_y: Optional[float] = None
     position_z: Optional[float] = None
+    metadata: Optional[dict] = Field(None, description="附加元数据: task_code, waypoint_id, event, video_stream, battery 等")
 
 
 class DataReceiveResponse(BaseModel):
@@ -274,3 +275,117 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: Optional[UserResponse] = None
+
+
+# ========== 无人机整合 Schema ==========
+
+class DroneDeviceRegisterRequest(BaseModel):
+    """设备注册请求"""
+    drone_id: int
+    device_name: str
+    ip_address: str = "192.168.1.201"
+    port: int = 8080
+    protocol: str = "HTTP"
+    device_model: Optional[str] = None
+    firmware_version: Optional[str] = None
+    auth_type: str = "none"
+    auth_credential: Optional[str] = None
+    encryption_enabled: bool = False
+    encryption_type: Optional[str] = None
+    encryption_key: Optional[str] = None
+    heartbeat_interval: int = 5
+
+
+class DroneDeviceResponse(BaseModel):
+    """设备响应"""
+    id: int
+    drone_id: int
+    device_name: str
+    device_model: Optional[str]
+    firmware_version: Optional[str]
+    ip_address: str
+    port: int
+    protocol: str
+    auth_type: str
+    encryption_enabled: bool
+    encryption_type: Optional[str]
+    status: str
+    last_connected_at: Optional[datetime]
+    heartbeat_interval: int
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class AutomatedTaskRequest(BaseModel):
+    """自动化任务创建请求"""
+    device_id: int
+    task_name: str
+    task_type: str = Field(..., description="video_capture/rfid_read/both")
+    schedule_type: str = "interval"
+    schedule_value: str = Field(..., description="秒数/cron/ISO时间")
+    target_storage_path: str = "drone_data"
+    video_duration: int = 30
+    video_resolution: str = "1920x1080"
+    rfid_read_duration: int = 10
+    json_filename_pattern: str = "drone_{device_id}_{timestamp}.json"
+    enabled: bool = True
+
+
+class AutomatedTaskResponse(BaseModel):
+    """自动化任务响应"""
+    id: int
+    device_id: int
+    task_name: str
+    task_type: str
+    schedule_type: str
+    schedule_value: str
+    target_storage_path: str
+    video_duration: int
+    video_resolution: str
+    rfid_read_duration: int
+    json_filename_pattern: str
+    enabled: bool
+    last_run_at: Optional[datetime]
+    last_run_status: Optional[str]
+    next_run_at: Optional[datetime]
+    run_count: int
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class NetworkVerifyResponse(BaseModel):
+    """网络验证响应"""
+    source_ip: str
+    target_ip: str
+    ping_success: bool
+    ping_ms: Optional[float]
+    packet_loss_percent: float
+    stability: str
+    open_ports: List[dict]
+    summary: str
+
+
+class CommunicationLogResponse(BaseModel):
+    """通信日志响应"""
+    id: int
+    device_id: int
+    log_type: str
+    direction: str
+    data_type: Optional[str]
+    payload_summary: Optional[str]
+    payload_size: Optional[int]
+    status: str
+    error_message: Optional[str]
+    response_time_ms: Optional[int]
+    source_ip: Optional[str]
+    target_ip: Optional[str]
+    created_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True

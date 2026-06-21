@@ -1,6 +1,7 @@
 # 项目记忆 — 域感智能
 
 ## 核心约定
+- 启动管理使用 `启动.sh`（统一脚本），`./启动.sh` 一键启动，`./启动.sh menu` 交互菜单。`引导.sh` 为兼容性包装器。
 - 所有后台线程必须随 FastAPI `lifespan` shutdown 事件优雅退出（如 RFID 连续扫描、入库监听）。
 - 禁止在路由中直接 `return` 错误 — 异常由全局 `exception_handler` 统一捕获。
 - 日志统一使用 `logging.getLogger(__name__)`，禁止 `print()`。
@@ -47,6 +48,7 @@ EPC 解析公式：`pc_byte0 = params[1]`, `epc_len = ((pc_byte0 // 8) + 1) * 2 
 帧格式：`BB + Type(1) + Cmd(1) + PL(2,big-endian) + Params(N) + CS(1,sum%256) + 7E`
 
 ## 已知陷阱
+- Windows 编辑的 `.sh` 脚本在 WSL 运行前必须转 LF，否则 bash 解析 shebang 失败（报 `$'\r': command not found` 或 `required file not found`）。项目已统一转换，但新增/编辑 shell 脚本时需确保编辑器使用 LF 换行符。
 - WSL 环境不支持 pyserial，需用 fd 直接打开 `/dev/ttyS*`，`select.select()` 做非阻塞读。
 - 入库服务的 `_on_tag_detected` 回调在后台线程中执行，需自行创建 `SessionLocal()` 管理数据库会话，**不能使用 FastAPI 的 `get_db` 依赖注入**。
 - Python 环境未安装或不在 PATH 时，`pytest` 无法直接从命令行运行。

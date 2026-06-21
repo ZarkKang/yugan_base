@@ -1,5 +1,177 @@
 # 域感智能 开发日志
 
+## 2026-06-21 新增：无人机端开发技术文档（供 Codex 开发使用）
+- **类型**：[文档]
+- **影响范围**：无人机端
+- **详细内容**：
+  - 创建 `doc/无人机端开发技术文档.md` (v1.0)，面向无人机端开发团队的完整实施指南，包含 10 大章节：
+    1. 系统架构概述（飞控层+载荷层拓扑图、数据流全景）
+    2. 软件开发环境配置指南（硬件平台、OS、ROS 工作空间、Python 依赖、网络配置、开发工具链）
+    3. 硬件兼容性要求（UHF RFID PRE 协议 V2.2、摄像头、网络接口）
+    4. API 接口规范（6 个端点完整定义 + 通用调用模板）
+    5. 数据通信协议（HTTP+UDP 双链路、ROS 话题、RFID 标签格式、航点 YAML、失败日志 JSONL、视频推流协议）
+    6. 核心功能模块实现说明（5 个模块的架构图 + 伪代码骨架：心跳、RFID 桥接、航点监控、视频推流、设备上报 + launch 文件结构）
+    7. 安全认证机制（当前状态 + 3 阶段增强计划 + 无人机端安全编码规范）
+    8. 错误处理流程（错误分类 + 网络/数据/系统错误处理流程 + 失败持久化 + 崩溃恢复）
+    9. 性能优化建议（资源目标 + 连接复用、缓存优化、视频调优、日志轮转、线程安全 + 监控指标）
+    10. 测试验收标准（10 项单元测试 + 5 项集成测试 + 7 项性能测试 + 完整验收清单）
+  - 附录：完整启动命令、常用调试命令、文件索引、错误码速查
+- **相关文件**：
+  - `doc/无人机端开发技术文档.md`（新建，v1.0）
+  - `devlog.md`（本次记录）
+- **后续动作**：无人机端团队可直接以本文档为开发规格，使用 Codex 进行功能开发
+
+---
+
+## 2026-06-21 修复：设备验证方向 — 基站主动连接无人机 → 无人机主动上报
+- **类型**：[修复] + [新增功能]
+- **影响范围**：warehouse-inspection-system + 无人机端
+- **详细内容**：
+  1. **根因**：基站 `device_verification.py` 设计为主动向无人机 IP (192.168.1.201:8080) 发起 HTTP 请求验证设备身份，但无人机端仅运行 `uav_ground_bridge`（HTTP 客户端），无 HTTP 服务端监听，导致验证向导提示"设备可能不支持HTTP API"。
+  2. **方案A（主）— 被动验证模式**：
+     - 新增 `POST /drone-integration/device/report` 端点：无人机启动时主动上报设备型号、固件版本、ROS 版本、系统信息等。
+     - `device_verification.py` 新增 `save_device_report()` 和 `_verify_device_passive()` 函数，支持存储和查询无人机上报的设备信息。
+     - `verify_device_identity` API 新增 `mode` 参数（`active`/`passive`），默认仍为 active。
+  3. **方案B（辅）— 无人机端 HTTP 服务端**：
+     - `doc/drone_scripts/drone_http_server.py`：轻量 HTTP 服务端，监听 8080，响应 `/health`、`/api/device/info`、`/status` 等端点，为验证向导提供后向兼容。
+     - `doc/drone_scripts/report_device_info.py`：设备信息自动采集 + 上报脚本，支持重试，可集成到 launch 文件。
+  4. **文档更新**：`doc/无人机端开发规范.md` v1.1，新增 API-06 接口规范、验证模式对比表、脚本引用。
+- **相关文件**：
+  - `warehouse-inspection-system/backend/src/api/drone_integration.py`（新增 /device/report 端点 + mode 参数）
+  - `warehouse-inspection-system/backend/src/services/device_verification.py`（新增 save_device_report + _verify_device_passive）
+  - `doc/drone_scripts/report_device_info.py`（新建，无人机端设备上报脚本）
+  - `doc/drone_scripts/drone_http_server.py`（新建，无人机端 HTTP 服务端）
+  - `doc/无人机端开发规范.md`（v1.0 → v1.1）
+- **后续动作**：无人机端集成 `report_device_info.py` 到 launch 启动流程；可选部署 `drone_http_server.py` 作为后台服务；前端验证向导需支持 passive 模式选项。
+
+---
+
+## 2026-06-21 优化：建立基站-无人机同步开发流程与接口规范文档
+- **类型**：[优化] + [文档]
+- **影响范围**：全局（Skill + 无人机端 + warehouse-inspection-system）
+- **详细内容**：
+  1. **创建 `doc/无人机端开发规范.md`**（v1.0）：结构化无人机端开发文档，涵盖系统架构、通信拓扑、5 个 API 接口规范（心跳/RFID/图像/二维码/视频推流）、全部数据格式定义（RFID/位置/电池/航点/失败日志）、功能需求矩阵（8 已完成 + 5 待开发 + 3 基站配合）、技术参数表、里程碑进度、测试标准（单元/集成/性能）、完整 Python ROS 代码示例。
+  2. **修复 `schemas.py`**：`DataReceiveRequest` 新增 `metadata: Optional[dict]` 字段，支持无人机端上传 `task_code`、`waypoint_id`、`event`、`video_stream`、`battery` 等附加元数据。
+  3. **更新 `SKILL.md`**：新增"基站-无人机同步开发流程"章节，包含接口契约原则、5 阶段同步开发要求表、文档版本控制机制（语义化版本 + 同步提交规则 + 冲突处理 + 定期审查）。
+  4. **接口路径对齐**：明确无人机端 HTTP 路径统一使用 `/api/warehouse` 前缀（经 API 网关路由），修正了无人机端现有路径 `/api/v1/` 与基站实际路径不匹配的问题。
+- **相关文件**：
+  - `doc/无人机端开发规范.md`（新建，v1.0）
+  - `warehouse-inspection-system/backend/src/schemas/schemas.py`（DataReceiveRequest 新增 metadata 字段）
+  - `.trae/skills/yugan-intelligence/SKILL.md`（新增同步开发流程章节）
+  - `devlog.md`（本次记录）
+- **后续动作**：无人机端需按 `doc/无人机端开发规范.md` 修正 HTTP 路径前缀；基站 gateway 需实现 metadata 字段存储逻辑。
+
+---
+
+## 2026-06-21 新增：无人机系统整合 — 发现→验证→注册→传输→自动化→监控全流程
+- **类型**：[新增功能]
+- **影响范围**：warehouse-inspection-system
+- **详细内容**：
+  1. **网络工具模块** (`src/core/network.py`)：ping、端口扫描、子网扫描、连通性诊断，支持 Windows/Linux 双平台
+  2. **设备发现服务** (`src/services/drone_discovery.py`)：扫描 192.168.1.x 网段，识别无人机图传设备(192.168.1.201)和基站(192.168.1.200)，结果存入 `network_scan_results` 表
+  3. **设备身份验证** (`src/services/device_verification.py`)：HTTP 请求设备 API 获取型号/固件/协议信息，匹配已知兼容设备列表 (DJI/Walksnail/HDZero/SIYI 等)，检查协议兼容性
+  4. **系统整合服务** (`src/services/drone_integration.py`)：设备注册、通信参数配置(协议/端口/认证/加密)、连接测试、数据传仕测试(视频+RFID JSON)
+  5. **自动化任务调度** (`src/services/automated_task.py`)：定时任务调度器(interval/cron/once)，支持视频采集+RFID读取+JSON文件自动回传至基站(192.168.1.200)
+  6. **API路由** (`src/api/drone_integration.py`)：完整的 REST API 覆盖7个步骤，共 15 个端点
+  7. **数据库新增 4 张表**：`drone_devices`(设备配置)、`communication_logs`(通信日志)、`automated_tasks`(自动化任务)、`network_scan_results`(扫描结果)
+  8. **生命周期集成**：调度器随 FastAPI lifespan 自动启停
+- **相关文件**：
+  - `src/core/network.py`（新建，网络工具）
+  - `src/services/drone_discovery.py`（新建，设备发现）
+  - `src/services/device_verification.py`（新建，身份验证）
+  - `src/services/drone_integration.py`（新建，整合服务）
+  - `src/services/automated_task.py`（新建，任务调度）
+  - `src/api/drone_integration.py`（新建，API路由）
+  - `src/models/models.py`（新增 4 张表）
+  - `src/schemas/schemas.py`（新增 4 个 Schema）
+  - `src/main.py`（注册路由 + 调度器启停）
+  - `requirements.txt`（添加 apscheduler）
+- **后续动作**：在 WSL 中重启服务验证 API 可用性；真机测试需无人机图传设备接入 192.168.1.x 网段
+
+---
+
+## 2026-06-21 修复：无人机系统 admin 登录失败（passlib + bcrypt 5.x 不兼容）
+- **类型**：[修复]
+- **影响范围**：drone-db-prototype（无人机数据系统）
+- **详细内容**：
+  1. **根因**：`passlib[bcrypt]==1.7.4` 与 bcrypt 5.0.0 不兼容 — passlib 内部的 `detect_wrap_bug` 函数使用 255 字节测试密钥，bcrypt 5.x 拒绝处理超过 72 字节的密码，抛出 `ValueError: password cannot be longer than 72 bytes`，导致 `CryptContext` 初始化失败，登录接口无法验证密码。
+  2. **修复**：移除 `passlib` 依赖，改用 `bcrypt` 直接调用（`bcrypt.checkpw` / `bcrypt.hashpw`）。`security.py` 中删除 `CryptContext`，`requirements.txt` 中 `passlib[bcrypt]==1.7.4` → `bcrypt>=4.0,<5.0`。
+  3. **验证**：admin/admin123 登录返回 200 + JWT token，错误密码返回 401。
+- **相关文件**：
+  - `drone-db-prototype/backend/app/core/security.py`（passlib → bcrypt 直接调用）
+  - `drone-db-prototype/backend/requirements.txt`（passlib[bcrypt] → bcrypt）
+- **后续动作**：生产环境更换 `SECRET_KEY`，启用 HTTPS。
+
+---
+
+## 2026-06-21 修复：前端导航栏 HTML 结构错误导致显示异常
+- **类型**：[修复]
+- **影响范围**：warehouse-inspection-system 前端
+- **详细内容**：
+  1. **根因**：提交 `a341454`（feat: 前端新增入库管理页面）在合并时产生 HTML 结构错误 — `index.html` 第 309 行多了一个 `</div>`，导致 `<nav class="sidebar-nav">` 在入库管理 nav-item 之后被提前关闭。
+  2. **影响**：货架管理、SKU 管理、图像管理、视频管理、数据网关、系统状态、RFID 设置等 7 个导航项被渲染在 `<nav>` 容器之外，CSS 选择器 `.sidebar-nav .nav-item` 样式失效，造成导航栏显示错乱。
+  3. **修复**：删除多余的 `</div>`，恢复 nav 标签的正确嵌套结构。
+  4. **验证**：HTML 标签验证通过（nav 1:1，div 343:343 平衡），所有 nav-item 均在 `<nav>` 内，后端服务正常。
+- **相关文件**：`warehouse-inspection-system/frontend/index.html`（第 309 行）
+- **后续动作**：前端可正常打开使用 `file:///.../index.html`，所有导航项点击和页面切换正常。
+
+---
+
+## 2026-06-21 修复：启动.sh abs_path 函数 bug 导致 venv 路径错误
+- **类型**：[修复]
+- **影响范围**：启动.sh
+- **详细内容**：
+  1. `abs_path()` 中 `local rel="$1" full="$SCRIPT_DIR/$rel"` 的单行声明存在 bug，`$rel` 在 `full` 赋值时未展开，导致所有路径都返回 `$SCRIPT_DIR/` 而非 `$SCRIPT_DIR/子目录`。
+  2. 修复为两行独立声明：`local rel="$1"` + `local full="$SCRIPT_DIR/$rel"`。
+  3. 清理了 bug 产生的根目录 `venv` 残留。
+- **相关文件**：`启动.sh`
+- **验证**：三个服务（8000/8001/8080）均启动成功，状态全部正常。
+
+---
+
+## 2026-06-21 重构：引导脚本与启动脚本合并为统一启动管理脚本
+- **类型**：[重构] + [架构变更]
+- **影响范围**：全局（部署脚本、引导菜单、启动脚本）
+- **详细内容**：
+  1. **合并**：将 `引导.sh`（1024 行，交互菜单）和 `启动.sh`（569 行，服务管理）合并为单一 `启动.sh`（1584 行），消除全部重复代码（颜色输出、SCRIPT_DIR、MODE 管理、RFID 检测等）。
+  2. **端口统一管理**：新增 `release_port()` / `get_port_pid()` / `release_all_ports()` 函数，启动前自动检测并释放占用端口，彻底解决两脚本独立运行时的端口抢占冲突。
+  3. **阶段化启动流程**：`start_all()` 分为 5 个明确阶段（前置检查 → 基础设施 → RFID 检测 → 后端服务 → 状态汇总），每阶段独立日志输出。
+  4. **双入口设计**：`./启动.sh`（无参数）→ 一键启动；`./启动.sh menu` → 交互式引导菜单；`./启动.sh start|stop|status|restart|logs|daemon|help` → CLI 命令。
+  5. **兼容性**：`引导.sh` 改为 7 行兼容性包装器（`exec bash 启动.sh menu`），保留原有调用方式。
+  6. **附带修复**：`deploy-linux.sh` 修复 HTML 实体编码错误（`&amp;&gt;` → `&>`，`&amp;&amp;` → `&&`）。
+- **相关文件**：
+  - `启动.sh`（完全重写，合并两个脚本的全部功能）
+  - `引导.sh`（简化为兼容性包装器）
+  - `deploy-linux.sh`（修复 HTML 实体编码）
+- **后续动作**：验证 `./启动.sh` 一键启动和 `./启动.sh menu` 菜单功能正常。
+
+---
+
+## 2026-06-21 修复：仓库巡检系统 inbound.py 数据库导入路径错误
+- **类型**：[修复]
+- **影响范围**：warehouse-inspection-system
+- **详细内容**：
+  1. 一键启动时仓库巡检系统（端口 8001）启动失败，日志报 `ModuleNotFoundError: No module named 'src.core.database'`。
+  2. 根因：`src/api/inbound.py` 中错误地从 `..core.database` 导入 `get_db`，而项目实际数据库模块位于 `src/db/database.py`（其他路由均使用 `..db.database`）。
+  3. 修复：将 `from ..core.database import get_db` 改为 `from ..db.database import get_db`。
+  4. 验证：修复后仓库巡检系统 `/health` 返回正常，数据库与 Redis 连接正常；同时手动启动了无人机数据系统（8000）和 API 网关（8080），三者均运行正常。
+- **相关文件**：`warehouse-inspection-system/backend/src/api/inbound.py`
+- **后续动作**：启动脚本 `./启动.sh start` 已可正常启动全部服务；建议后续提交本次修复。
+
+---
+
+## 2026-06-21 修复：WSL 下所有 shell 脚本换行符转换为 LF
+- **类型**：[修复] + [配置]
+- **影响范围**：全局（部署脚本、引导菜单、启动脚本）
+- **详细内容**：
+  1. 项目所有 `.sh` 脚本（`引导.sh`、`启动.sh`、`deploy-linux.sh` 等）在 Windows 编辑保存后使用了 CRLF 换行符，导致 WSL bash 无法正确解析 shebang，报 `required file not found` 或 `$'\r': command not found`。
+  2. 使用 `find` + `sed -i 's/\r$//'` 将所有 `.sh` 文件统一转换为 LF 换行符。
+  3. 修复后 `./引导.sh` 服务管理菜单可正常调用 `启动.sh`。
+- **相关文件**：项目根目录及子目录下所有 `*.sh` 脚本
+- **后续动作**：后续编辑 shell 脚本时确保使用 LF 换行符；建议配置编辑器/IDE 默认对 `.sh` 文件使用 LF。
+
+---
+
 ## 2026-06-15 P0: Gateway 端到端测试 + 模拟器全流程测试 + EPC 种子数据
 - **类型**：[测试] + [数据填充]
 - **影响范围**：warehouse-inspection-system

@@ -52,13 +52,15 @@ async def global_exception_handler(
 ) -> JSONResponse:
     """全局异常捕获 - 500"""
     logger.error(
-        f"未捕获异常 [{request.method} {request.url.path}]: {exc}\n"
+        f"未捕获异常 [{request.method} {request.url.path}]: {type(exc).__name__}: {exc}\n"
         f"{traceback.format_exc()}"
     )
+    from .config import settings
+    detail = f"{type(exc).__name__}: {str(exc)}" if settings.DEBUG else "服务器内部错误，请联系管理员"
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "success": False,
-            "message": "服务器内部错误",
+            "message": detail,
         },
     )

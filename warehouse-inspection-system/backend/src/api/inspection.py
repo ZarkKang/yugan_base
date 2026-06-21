@@ -163,6 +163,20 @@ def get_available_tasks(drone_code: str, db: Session = Depends(get_db)):
         .limit(5)
         .all()
     )
+
+    # 批量获取航点计数
+    task_codes = [t.task_code for t in tasks]
+    wp_counts = {}
+    if task_codes:
+        from sqlalchemy import func as sa_func
+        wp_rows = (
+            db.query(Waypoint.task_id, sa_func.count(Waypoint.id))
+            .filter(Waypoint.task_id.in_(task_codes))
+            .group_by(Waypoint.task_id)
+            .all()
+        )
+        wp_counts = {row[0]: row[1] for row in wp_rows}
+
     return APIResponse(success=True, data={
         "drone_code": drone_code,
         "total": len(tasks),
@@ -172,7 +186,7 @@ def get_available_tasks(drone_code: str, db: Session = Depends(get_db)):
                 "task_name": t.task_name,
                 "task_type": t.task_type,
                 "status": t.status.value if hasattr(t.status, 'value') else str(t.status),
-                "total_waypoints": db.query(Waypoint).filter(Waypoint.task_id == t.task_code).count(),
+                "total_waypoints": wp_counts.get(t.task_code, 0),
                 "altitude": t.altitude,
                 "speed": t.speed,
                 "created_at": t.created_at.isoformat() if t.created_at else None,
@@ -340,66 +354,105 @@ def list_tasks(
     db: Session = Depends(get_db)
 ):
     """获取任务列表"""
-    q = db.query(Task)
-    if status:
-        q = q.filter(Task.status == status)
-    total = q.count()
-    tasks = q.order_by(Task.created_at.desc()).offset((page-1)*page_size).limit(page_size).all()
+    try:
+        q = db.query(Task)
+        if status:
+            try:
+                q = q.filter(Task.status == status)
+            except Exception:
+                q = q.filter(Task.status == status.upper())
 
-    return APIResponse(success=True, data={
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "items": [
-            {
+        total = q.count()
+        tasks = q.order_by(Task.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+
+        # 批量获取 drone_code 映射，避免 N+1 查询
+        drone_ids = [t.drone_id for t in tasks if t.drone_id]
+        drone_map = {}
+        if drone_ids:
+            drones = db.query(Drone).filter(Drone.id.in_(drone_ids)).all()
+            drone_map = {d.id: d.drone_code for d in drones}
+
+        # 批量获取航点计数
+        task_codes = [t.task_code for t in tasks]
+        wp_counts = {}
+        if task_codes:
+            from sqlalchemy import func as sa_func
+            wp_rows = (
+                db.query(Waypoint.task_id, sa_func.count(Waypoint.id))
+                .filter(Waypoint.task_id.in_(task_codes))
+                .group_by(Waypoint.task_id)
+                .all()
+            )
+            wp_counts = {row[0]: row[1] for row in wp_rows}
+
+        items = []
+        for t in tasks:
+            status_str = t.status.value if hasattr(t.status, 'value') else str(t.status)
+            drone_code = drone_map.get(t.drone_id) if t.drone_id else None
+            items.append({
                 "task_code": t.task_code,
                 "task_name": t.task_name,
                 "task_type": t.task_type,
-                "status": t.status.value if hasattr(t.status, 'value') else str(t.status),
-                "drone_code": db.query(Drone).filter(Drone.id == t.drone_id).first().drone_code if t.drone_id else None,
-                "total_waypoints": db.query(Waypoint).filter(Waypoint.task_id == t.task_code).count(),
+                "status": status_str,
+                "drone_code": drone_code,
+                "total_waypoints": wp_counts.get(t.task_code, 0),
                 "scanned_waypoints": t.scanned_waypoints or 0,
                 "total_images": t.total_images or 0,
                 "total_recognized": t.total_recognized or 0,
                 "start_time": t.start_time.isoformat() if t.start_time else None,
                 "end_time": t.end_time.isoformat() if t.end_time else None,
                 "created_at": t.created_at.isoformat() if t.created_at else None,
-            }
-            for t in tasks
-        ]
-    })
+            })
+
+        return APIResponse(success=True, data={
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "items": items,
+        })
+    except Exception as e:
+        logger.error(f"获取任务列表失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取任务列表失败: {str(e)}")
 
 
 @router.get("/inspection/tasks/{task_code}", response_model=APIResponse)
 def get_task(task_code: str, db: Session = Depends(get_db)):
     """获取任务详情"""
-    t = db.query(Task).filter(Task.task_code == task_code).first()
-    if not t:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    try:
+        t = db.query(Task).filter(Task.task_code == task_code).first()
+        if not t:
+            raise HTTPException(status_code=404, detail="任务不存在")
 
-    drone_code = None
-    if t.drone_id:
-        d = db.query(Drone).filter(Drone.id == t.drone_id).first()
-        drone_code = d.drone_code if d else None
+        drone_code = None
+        if t.drone_id:
+            d = db.query(Drone).filter(Drone.id == t.drone_id).first()
+            drone_code = d.drone_code if d else None
 
-    return APIResponse(success=True, data={
-        "task_code": t.task_code,
-        "task_name": t.task_name,
-        "task_type": t.task_type,
-        "status": t.status.value if hasattr(t.status, 'value') else str(t.status),
-        "drone_code": drone_code,
-        "altitude": t.altitude,
-        "speed": t.speed,
-        "total_waypoints": db.query(Waypoint).filter(Waypoint.task_id == task_code).count(),
-        "scanned_waypoints": t.scanned_waypoints or 0,
-        "total_images": t.total_images or 0,
-        "total_recognized": t.total_recognized or 0,
-        "total_failed": t.total_failed or 0,
-        "pending_count": t.pending_count or 0,
-        "start_time": t.start_time.isoformat() if t.start_time else None,
-        "end_time": t.end_time.isoformat() if t.end_time else None,
-        "created_at": t.created_at.isoformat() if t.created_at else None,
-    })
+        total_waypoints = db.query(Waypoint).filter(Waypoint.task_id == task_code).count()
+
+        return APIResponse(success=True, data={
+            "task_code": t.task_code,
+            "task_name": t.task_name,
+            "task_type": t.task_type,
+            "status": t.status.value if hasattr(t.status, 'value') else str(t.status),
+            "drone_code": drone_code,
+            "altitude": t.altitude,
+            "speed": t.speed,
+            "total_waypoints": total_waypoints,
+            "scanned_waypoints": t.scanned_waypoints or 0,
+            "total_images": t.total_images or 0,
+            "total_recognized": t.total_recognized or 0,
+            "total_failed": t.total_failed or 0,
+            "pending_count": t.pending_count or 0,
+            "start_time": t.start_time.isoformat() if t.start_time else None,
+            "end_time": t.end_time.isoformat() if t.end_time else None,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取任务详情失败 (task_code={task_code}): {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取任务详情失败: {str(e)}")
 
 
 @router.patch("/inspection/tasks/{task_code}", response_model=APIResponse)

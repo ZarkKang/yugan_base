@@ -306,7 +306,7 @@
         <div class="nav-item" data-page="tasks"><span class="icon">☰</span> 巡检任务</div>
         <div class="nav-item" data-page="records"><span class="icon">▤</span> 巡检记录</div>
         <div class="nav-item" data-page="inbound"><span class="icon">⊟</span> 入库管理</div>
-    <div class="nav-item" data-page="shelves"><span class="icon">▦</span> 货架管理</div>
+<div class="nav-item" data-page="shelves"><span class="icon">▦</span> 货架管理</div>
         <div class="nav-item" data-page="skus"><span class="icon">◎</span> SKU管理</div>
         <div class="nav-section">数据</div>
         <div class="nav-item" data-page="images"><span class="icon">▣</span> 图像管理</div>
@@ -314,6 +314,7 @@
         <div class="nav-item" data-page="gateway"><span class="icon">⇋</span> 数据网关</div>
         <div class="nav-section">系统</div>
         <div class="nav-item" data-page="system"><span class="icon">⚙</span> 系统状态</div>
+        <div class="nav-item" data-page="drone_integration"><span class="icon">◉</span> 无人机整合</div>
         <div class="nav-item" data-page="rfid_settings"><span class="icon">⊞</span> RFID设置</div>
     </nav>
     <div class="sidebar-footer">
@@ -376,10 +377,11 @@ async function api(url, opts={}) {
     const h = { 'Content-Type':'application/json', ...opts.headers };
     if (TOKEN) h['Authorization'] = `Bearer ${TOKEN}`;
     const res = await fetch(url, { ...opts, headers: h });
-    if (res.status === 401) { throw new Error('请求未授权'); }
+    if (res.status === 401) { TOKEN=null; localStorage.removeItem('token'); throw new Error('登录已过期，请重新登录'); }
     if (!res.ok) {
         const e = await res.json().catch(()=>({message:res.statusText}));
-        throw new Error(e.message || e.detail || '请求失败');
+        const msg = e.message || e.detail || `请求失败 (${res.status})`;
+        throw new Error(msg);
     }
     return res.json();
 }
@@ -449,7 +451,7 @@ let currentPage = '';
 const pageTitles = {
     dashboard:'实时看板', drones:'无人机管理', tasks:'巡检任务', records:'巡检记录', inbound:'入库管理',
     shelves:'货架管理', skus:'SKU管理', images:'图像管理', videos:'视频管理',
-    gateway:'数据网关', system:'系统状态', rfid_settings:'RFID设置'
+    gateway:'数据网关', system:'系统状态', rfid_settings:'RFID设置', drone_integration:'无人机整合'
 };
 
 function navigate(name) {
@@ -575,11 +577,13 @@ async function render_tasks(el) {
 }
 
 async function loadTasks() {
+    const tbody = document.getElementById('task-tbody');
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="9">加载中...</td></tr>';
     try {
         const data = await api(`${API}/inspection/tasks`);
         const tasks = data?.data?.items || data?.items || [];
         document.getElementById('task-count').textContent = `${data?.data?.total||tasks.length} 个`;
-        document.getElementById('task-tbody').innerHTML = tasks.length ? tasks.map(t => `
+        tbody.innerHTML = tasks.length ? tasks.map(t => `
             <tr>
                 <td class="mono">${t.task_code}</td><td>${t.task_name}</td><td>${t.task_type||'-'}</td>
                 <td>${t.drone_code||'未分配'}</td><td>${badge(t.status)}</td>
@@ -588,7 +592,10 @@ async function loadTasks() {
                 <td>${fmtTime(t.created_at)}</td>
                 <td><div class="row-actions"><button class="btn btn-outline btn-sm" onclick="viewTaskDetail('${t.task_code}')">详情</button></div></td>
             </tr>`).join('') : '<tr class="empty-row"><td colspan="9">暂无任务</td></tr>';
-    } catch(e) { document.getElementById('task-tbody').innerHTML = `<tr class="empty-row"><td colspan="9">加载失败: ${e.message}</td></tr>`; }
+    } catch(e) {
+        tbody.innerHTML = `<tr class="empty-row"><td colspan="9" style="color:var(--danger)">加载失败: ${e.message} <button class="btn btn-outline btn-sm" onclick="loadTasks()" style="margin-left:8px">重试</button></td></tr>`;
+        console.error('加载巡检任务列表失败:', e);
+    }
 }
 
 async function openTaskModal() {
@@ -1451,6 +1458,494 @@ async function inboundLoadInventory() {
                     <td>${inv.quantity}</td>
                     <td style="font-size:12px;">${inv.last_read_at ? new Date(inv.last_read_at).toLocaleTimeString() : '-'}</td>
                 </tr>`).join('');
+    } catch(e) { /* ignore */ }
+}
+
+// ═══════════════════ PAGE: DRONE INTEGRATION ═══════════════════
+const DI = {}; // drone integration state
+let diStep = 1;
+
+function diSetStep(n) {
+    diStep = n;
+    document.querySelectorAll('.di-step').forEach(el => el.classList.toggle('active', el.dataset.step == n));
+    document.querySelectorAll('.di-panel').forEach(el => el.style.display = el.dataset.step == n ? 'block' : 'none');
+    if (n === 6) { diLoadTasks(); diRefreshTaskList(); }
+    if (n === 7) { diLoadMonitor(); diLoadLogs(); }
+}
+
+function diNext() { if (diStep < 7) diSetStep(diStep + 1); }
+function diPrev() { if (diStep > 1) diSetStep(diStep - 1); }
+
+async function render_drone_integration(el) {
+    el.innerHTML = `
+        <div class="panel" style="margin-bottom:16px;">
+            <div style="display:flex;overflow-x:auto;border-bottom:1px solid var(--border);">
+                ${[1,2,3,4,5,6,7].map(n => `
+                    <div class="di-step nav-item" data-step="${n}" style="border-radius:0;padding:10px 16px;margin:0;flex-shrink:0;${n===1?'color:var(--primary);font-weight:500;':''}"
+                         onclick="diSetStep(${n})">
+                        <span style="width:22px;height:22px;border-radius:50%;background:var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;margin-right:6px;${n===1?'background:var(--primary);color:#fff;':''}">${n}</span>
+                        ${['网络验证','设备发现','身份验证','系统整合','传输测试','自动化任务','监控日志'][n-1]}
+                    </div>`).join('')}
+            </div>
+        </div>
+
+        <!-- Step 1: 网络连接验证 -->
+        <div class="di-panel" data-step="1" style="display:block;">
+            <div class="panel"><div class="panel-header"><span>网络连接验证</span><span style="font-size:11px;color:var(--muted);">步骤 1/7</span></div>
+            <div style="padding:16px;">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="field"><label>基站图传设备IP</label><input type="text" id="di-src-ip" value="192.168.1.200"></div>
+                    <div class="field"><label>无人机图传设备IP</label><input type="text" id="di-dst-ip" value="192.168.1.201"></div>
+                    <div class="field"><label>检测端口 (逗号分隔)</label><input type="text" id="di-ports" value="554,8080,8000,8554,80,443,1883"></div>
+                    <div style="display:flex;align-items:flex-end;gap:8px;">
+                        <button class="btn btn-primary" onclick="diVerifyNetwork()" id="di-btn-net">开始验证</button>
+                        <button class="btn btn-outline" onclick="diNext()">跳过 →</button>
+                    </div>
+                </div>
+                <div id="di-net-result" style="margin-top:16px;"></div>
+            </div></div>
+        </div>
+
+        <!-- Step 2: 设备发现 -->
+        <div class="di-panel" data-step="2" style="display:none;">
+            <div class="panel"><div class="panel-header"><span>设备发现</span><span style="font-size:11px;color:var(--muted);">步骤 2/7</span></div>
+            <div style="padding:16px;">
+                <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+                    <div class="field"><label>子网前缀</label><input type="text" id="di-subnet" value="192.168.1" style="width:140px;"></div>
+                    <button class="btn btn-primary" onclick="diDiscover()" id="di-btn-discover">扫描子网</button>
+                    <button class="btn btn-outline" onclick="diDiscoverTargets()">扫描目标设备</button>
+                    <button class="btn btn-ghost" onclick="diPrev()">← 上一步</button>
+                    <button class="btn btn-outline" onclick="diNext()">跳过 →</button>
+                </div>
+                <div id="di-discover-result" style="margin-top:16px;">
+                    <div style="color:var(--muted);text-align:center;padding:24px;">点击"扫描子网"开始搜索192.168.1.x网段内的设备</div>
+                </div>
+            </div></div>
+        </div>
+
+        <!-- Step 3: 设备身份验证 -->
+        <div class="di-panel" data-step="3" style="display:none;">
+            <div class="panel"><div class="panel-header"><span>设备身份验证</span><span style="font-size:11px;color:var(--muted);">步骤 3/7</span></div>
+            <div style="padding:16px;">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="field"><label>设备IP</label><input type="text" id="di-verify-ip" value="192.168.1.201"></div>
+                    <div class="field"><label>HTTP端口</label><input type="number" id="di-verify-port" value="8080"></div>
+                    <div style="display:flex;align-items:flex-end;gap:8px;">
+                        <button class="btn btn-primary" onclick="diVerifyDevice()" id="di-btn-verify">验证设备</button>
+                        <button class="btn btn-ghost" onclick="diPrev()">← 上一步</button>
+                        <button class="btn btn-outline" onclick="diNext()">跳过 →</button>
+                    </div>
+                </div>
+                <div id="di-verify-result" style="margin-top:16px;"></div>
+            </div></div>
+        </div>
+
+        <!-- Step 4: 系统整合配置 -->
+        <div class="di-panel" data-step="4" style="display:none;">
+            <div class="panel"><div class="panel-header"><span>系统整合 — 设备注册</span><span style="font-size:11px;color:var(--muted);">步骤 4/7</span></div>
+            <div style="padding:16px;">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="field"><label>关联无人机ID *</label><input type="number" id="di-reg-drone" min="1" value="1"></div>
+                    <div class="field"><label>设备名称 *</label><input type="text" id="di-reg-name" value="无人机图传设备-01"></div>
+                    <div class="field"><label>IP地址 *</label><input type="text" id="di-reg-ip" value="192.168.1.201"></div>
+                    <div class="field"><label>端口</label><input type="number" id="di-reg-port" value="8080"></div>
+                    <div class="field"><label>通信协议</label><select id="di-reg-proto"><option value="HTTP">HTTP</option><option value="RTSP">RTSP</option><option value="MQTT">MQTT</option><option value="WebSocket">WebSocket</option></select></div>
+                    <div class="field"><label>设备型号</label><input type="text" id="di-reg-model" value="DJI-O3-Air-Unit"></div>
+                    <div class="field"><label>固件版本</label><input type="text" id="di-reg-fw" value="1.0.0"></div>
+                    <div class="field"><label>认证方式</label><select id="di-reg-auth"><option value="none">无</option><option value="basic">Basic</option><option value="token">Token</option><option value="certificate">证书</option></select></div>
+                    <div class="field"><label>认证凭据</label><input type="text" id="di-reg-cred" placeholder="留空则无认证"></div>
+                    <div class="field"><label>加密方式</label><select id="di-reg-enc-type"><option value="">不加密</option><option value="AES">AES</option><option value="TLS">TLS</option></select></div>
+                    <div class="field"><label>加密密钥</label><input type="text" id="di-reg-enc-key" placeholder="启用加密时填写"></div>
+                    <div class="field"><label>心跳间隔(秒)</label><input type="number" id="di-reg-hb" value="5"></div>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:16px;align-items:center;">
+                    <button class="btn btn-primary" onclick="diRegisterDevice()" id="di-btn-reg">注册设备</button>
+                    <button class="btn btn-ghost" onclick="diPrev()">← 上一步</button>
+                    <button class="btn btn-outline" onclick="diNext()">跳过 →</button>
+                </div>
+                <div id="di-reg-result" style="margin-top:12px;"></div>
+            </div></div>
+        </div>
+
+        <!-- Step 5: 数据传输测试 -->
+        <div class="di-panel" data-step="5" style="display:none;">
+            <div class="panel"><div class="panel-header"><span>数据传输测试</span><span style="font-size:11px;color:var(--muted);">步骤 5/7</span></div>
+            <div style="padding:16px;">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="field"><label>设备ID</label><input type="number" id="di-test-device" min="1" value="1"></div>
+                    <div class="field"><label>数据类型</label><select id="di-test-type"><option value="rfid_json">RFID JSON数据</option><option value="video">视频流</option><option value="both">视频 + RFID</option></select></div>
+                    <div style="display:flex;align-items:flex-end;gap:8px;">
+                        <button class="btn btn-primary" onclick="diTestTransmission()" id="di-btn-test">开始测试</button>
+                        <button class="btn btn-outline" onclick="diTestConnection()">连接测试</button>
+                        <button class="btn btn-ghost" onclick="diPrev()">← 上一步</button>
+                        <button class="btn btn-outline" onclick="diNext()">跳过 →</button>
+                    </div>
+                </div>
+                <div id="di-test-result" style="margin-top:16px;"></div>
+            </div></div>
+        </div>
+
+        <!-- Step 6: 自动化任务 -->
+        <div class="di-panel" data-step="6" style="display:none;">
+            <div class="panel" style="margin-bottom:12px;"><div class="panel-header"><span>创建自动化任务</span><span style="font-size:11px;color:var(--muted);">步骤 6/7</span></div>
+            <div style="padding:16px;">
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+                    <div class="field"><label>设备ID *</label><input type="number" id="di-task-device" min="1" value="1"></div>
+                    <div class="field"><label>任务名称 *</label><input type="text" id="di-task-name" value="定时巡检采集"></div>
+                    <div class="field"><label>任务类型</label><select id="di-task-type"><option value="both">视频+RFID</option><option value="video_capture">视频采集</option><option value="rfid_read">RFID读取</option></select></div>
+                    <div class="field"><label>调度类型</label><select id="di-task-sched-type" onchange="document.getElementById('di-task-cron-hint').style.display=this.value==='cron'?'block':'none'"><option value="interval">间隔(秒)</option><option value="cron">Cron表达式</option><option value="once">一次性</option></select></div>
+                    <div class="field"><label>调度值</label><input type="text" id="di-task-sched-val" value="60"><span id="di-task-cron-hint" style="font-size:10px;color:var(--muted);display:none;">如: */5 表示每5分钟</span></div>
+                    <div class="field"><label>目标路径</label><input type="text" id="di-task-path" value="drone_data"></div>
+                    <div class="field"><label>视频时长(s)</label><input type="number" id="di-task-vdur" value="30"></div>
+                    <div class="field"><label>视频分辨率</label><input type="text" id="di-task-vres" value="1920x1080"></div>
+                    <div class="field"><label>RFID时长(s)</label><input type="number" id="di-task-rdur" value="10"></div>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:16px;">
+                    <button class="btn btn-primary" onclick="diCreateTask()">创建任务</button>
+                    <button class="btn btn-ghost" onclick="diPrev()">← 上一步</button>
+                    <button class="btn btn-outline" onclick="diNext()">跳过 →</button>
+                </div>
+                <div id="di-task-create-result" style="margin-top:12px;"></div>
+            </div></div>
+            <div class="panel"><div class="panel-header"><span>任务列表</span><button class="btn btn-ghost btn-sm" onclick="diRefreshTaskList()">刷新</button></div>
+            <div style="overflow-x:auto"><table><thead><tr><th>名称</th><th>类型</th><th>调度</th><th>状态</th><th>上次执行</th><th>执行次数</th><th>操作</th></tr></thead><tbody id="di-task-list"></tbody></table></div></div>
+        </div>
+
+        <!-- Step 7: 监控与日志 -->
+        <div class="di-panel" data-step="7" style="display:none;">
+            <div class="stat-row" id="di-mon-stats">
+                <div class="stat-item"><div class="stat-label">设备总数</div><div class="stat-value" id="di-mon-total">-</div></div>
+                <div class="stat-item"><div class="stat-label">在线设备</div><div class="stat-value c-green" id="di-mon-online">-</div></div>
+                <div class="stat-item"><div class="stat-label">离线设备</div><div class="stat-value c-red" id="di-mon-offline">-</div></div>
+                <div class="stat-item"><div class="stat-label">通信日志</div><div class="stat-value c-blue" id="di-mon-logs">-</div></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
+                <button class="btn btn-primary btn-sm" onclick="diLoadMonitor()">刷新状态</button>
+                <button class="btn btn-ghost" onclick="diPrev()">← 上一步</button>
+            </div>
+            <div class="col2">
+                <div class="panel"><div class="panel-header"><span>已注册设备</span></div>
+                <div style="overflow-x:auto"><table><thead><tr><th>名称</th><th>IP</th><th>协议</th><th>状态</th><th>最后连接</th></tr></thead><tbody id="di-mon-devices"></tbody></table></div></div>
+                <div class="panel"><div class="panel-header"><span>最近通信日志</span><select id="di-log-filter" onchange="diLoadLogs()" style="margin-left:8px;font-size:11px;padding:2px 6px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;"><option value="">全部</option><option value="connection">连接</option><option value="data">数据</option><option value="error">错误</option></select></div>
+                <div style="overflow-x:auto"><table><thead><tr><th>时间</th><th>类型</th><th>方向</th><th>摘要</th><th>状态</th></tr></thead><tbody id="di-mon-logs-list"></tbody></table></div></div>
+            </div>
+        </div>`;
+    diSetStep(1);
+}
+
+// ── Step 1: 网络连接验证 ──
+async function diVerifyNetwork() {
+    const btn = document.getElementById('di-btn-net');
+    btn.disabled = true; btn.textContent = '验证中...';
+    const result = document.getElementById('di-net-result');
+    result.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted);">正在检测网络连通性...</div>';
+    try {
+        const src = document.getElementById('di-src-ip').value;
+        const dst = document.getElementById('di-dst-ip').value;
+        const ports = document.getElementById('di-ports').value;
+        const r = await api(`${API}/drone-integration/network/verify?drone_ip=${dst}&base_station_ip=${src}${ports?'&ports='+ports:''}`, {method:'POST'});
+        const d = r.data;
+        const portRows = (d.open_ports||[]).map(p => `<tr><td>${p.port}</td><td>${p.service||'-'}</td><td>${badge(p.is_open?'开放':'关闭',{open:'success',closed:'danger'})}</td><td>${p.response_ms!=null?p.response_ms.toFixed(1)+'ms':'-'}</td></tr>`).join('');
+        result.innerHTML = `
+            <div class="stat-row">
+                <div class="stat-item"><div class="stat-label">Ping</div><div class="stat-value ${d.ping?.success?'c-green':'c-red'}">${d.ping?.success?'可达':'不可达'}</div></div>
+                <div class="stat-item"><div class="stat-label">响应时间</div><div class="stat-value">${d.ping?.response_time_ms!=null?d.ping.response_time_ms.toFixed(1)+'ms':'-'}</div></div>
+                <div class="stat-item"><div class="stat-label">丢包率</div><div class="stat-value ${d.packet_loss_percent===0?'c-green':d.packet_loss_percent<50?'c-yellow':'c-red'}">${d.packet_loss_percent}%</div></div>
+                <div class="stat-item"><div class="stat-label">稳定性</div><div class="stat-value c-${d.stability==='stable'?'green':d.stability==='unstable'?'yellow':'red'}">${d.stability==='stable'?'稳定':d.stability==='unstable'?'不稳定':'差'}</div></div>
+            </div>
+            <div class="panel" style="margin-top:12px;"><div class="panel-header"><span>端口扫描结果</span></div>
+            <table><thead><tr><th>端口</th><th>服务</th><th>状态</th><th>响应</th></tr></thead><tbody>${portRows||'<tr class="empty-row"><td colspan="4">无端口数据</td></tr>'}</tbody></table></div>
+            <div style="margin-top:12px;padding:10px;background:var(--surface2);border-radius:var(--radius);font-size:12px;color:var(--text2);">${d.summary||''}</div>
+            ${d.ping?.success ? '<div style="margin-top:12px;text-align:right;"><button class="btn btn-primary" onclick="diNext()">下一步 →</button></div>' : ''}`;
+        if (d.ping?.success) toast('网络连接验证通过', 'success');
+    } catch(ex) { result.innerHTML = `<div style="color:var(--danger);padding:16px;text-align:center;">验证失败: ${ex.message}</div>`; toast(ex.message,'error'); }
+    finally { btn.disabled = false; btn.textContent = '开始验证'; }
+}
+
+// ── Step 2: 设备发现 ──
+async function diDiscover() {
+    const btn = document.getElementById('di-btn-discover');
+    btn.disabled = true; btn.textContent = '扫描中...';
+    const result = document.getElementById('di-discover-result');
+    result.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted);">正在扫描 192.168.1.x 网段 (1-254)...</div>';
+    try {
+        const subnet = document.getElementById('di-subnet').value;
+        const r = await api(`${API}/drone-integration/discover?subnet=${subnet}`, {method:'POST'});
+        const d = r.data;
+        const renderDevices = (list, title, color) => list.length ? `
+            <div style="margin-top:12px;"><div style="font-size:12px;font-weight:600;color:var(--${color});margin-bottom:6px;">${title} (${list.length})</div>
+            <table><thead><tr><th>IP</th><th>主机名</th><th>延迟</th><th>开放端口</th></tr></thead><tbody>
+            ${list.map(dev => `<tr>
+                <td class="mono">${dev.ip}</td><td>${dev.hostname||'-'}</td><td>${dev.ping_ms!=null?dev.ping_ms.toFixed(1)+'ms':'-'}</td>
+                <td>${(dev.open_ports||[]).map(p=>`<span class="badge ${p.port===554||p.port===8554?'badge-info':'badge-muted'}" style="margin-right:4px;">${p.port} ${p.service||''}</span>`).join('')||'无'}</td>
+            </tr>`).join('')}</tbody></table></div>` : '';
+        result.innerHTML = `
+            <div class="stat-row">
+                <div class="stat-item"><div class="stat-label">总主机数</div><div class="stat-value c-blue">${d.total_hosts}</div></div>
+                <div class="stat-item"><div class="stat-label">无人机设备</div><div class="stat-value c-green">${d.drone_transmitter_count}</div></div>
+                <div class="stat-item"><div class="stat-label">基站设备</div><div class="stat-value c-yellow">${d.base_station_count}</div></div>
+                <div class="stat-item"><div class="stat-label">未知设备</div><div class="stat-value">${d.unknown_count}</div></div>
+            </div>
+            ${renderDevices(d.drone_transmitters,'无人机图传设备','primary')}
+            ${renderDevices(d.base_stations,'基站设备','warning')}
+            ${renderDevices(d.unknown_devices,'未知设备','muted')}
+            <div style="margin-top:16px;text-align:right;"><button class="btn btn-primary" onclick="diNext()">下一步 →</button></div>`;
+        toast(`扫描完成: ${d.drone_transmitter_count} 台无人机, ${d.base_station_count} 台基站`);
+    } catch(ex) { result.innerHTML = `<div style="color:var(--danger);padding:16px;text-align:center;">扫描失败: ${ex.message}</div>`; toast(ex.message,'error'); }
+    finally { btn.disabled = false; btn.textContent = '扫描子网'; }
+}
+
+async function diDiscoverTargets() {
+    const btn = document.getElementById('di-btn-discover');
+    btn.disabled = true; btn.textContent = '扫描中...';
+    const result = document.getElementById('di-discover-result');
+    result.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted);">正在检测 192.168.1.200 和 192.168.1.201...</div>';
+    try {
+        const r = await api(`${API}/drone-integration/discover/target`, {method:'POST'});
+        const d = r.data;
+        const drone = d.drone_transmitter||{};
+        const base = d.base_station||{};
+        const bi = d.bidirectional||{};
+        result.innerHTML = `
+            <div class="col2">
+                <div class="panel"><div class="panel-header"><span>无人机: ${drone.ip}</span>${badge(drone.identified?'已识别':'未识别',{identified:'success',unidentified:'danger'})}</div>
+                <table><thead><tr><th>项目</th><th>结果</th></tr></thead><tbody>
+                    <tr><td>Ping</td><td>${badge(drone.connectivity?.ping_success?'可达':'不可达',{reachable:'success',unreachable:'danger'})}</td></tr>
+                    <tr><td>延迟</td><td>${drone.connectivity?.ping_ms!=null?drone.connectivity.ping_ms.toFixed(1)+'ms':'-'}</td></tr>
+                    <tr><td>丢包率</td><td>${drone.connectivity?.packet_loss||0}%</td></tr>
+                    <tr><td>稳定性</td><td>${drone.connectivity?.stability==='stable'?'稳定':drone.connectivity?.stability==='unstable'?'不稳定':'差'}</td></tr>
+                </tbody></table></div>
+                <div class="panel"><div class="panel-header"><span>基站: ${base.ip}</span>${badge(base.reachable?'可达':'不可达',{reachable:'success',unreachable:'danger'})}</div>
+                <table><thead><tr><th>项目</th><th>结果</th></tr></thead><tbody>
+                    <tr><td>Ping</td><td>${badge(base.reachable?'可达':'不可达',{reachable:'success',unreachable:'danger'})}</td></tr>
+                    <tr><td>延迟</td><td>${base.ping_ms!=null?base.ping_ms.toFixed(1)+'ms':'-'}</td></tr>
+                    <tr><td>开放端口</td><td>${(base.open_ports||[]).filter(p=>p.is_open).map(p=>p.port).join(', ')||'无'}</td></tr>
+                </tbody></table></div>
+            </div>
+            <div style="margin-top:12px;padding:10px;background:${bi.communication_ready?'rgba(16,185,129,.1)':'rgba(239,68,68,.1)'};border-radius:var(--radius);font-size:13px;text-align:center;">
+                ${bi.communication_ready ? '✅ 双向通信正常，可进行下一步整合' : '❌ 通信链路异常，请检查网络配置'}
+            </div>
+            <div style="margin-top:12px;text-align:right;"><button class="btn btn-primary" onclick="diNext()">下一步 →</button></div>`;
+    } catch(ex) { result.innerHTML = `<div style="color:var(--danger);padding:16px;text-align:center;">扫描失败: ${ex.message}</div>`; toast(ex.message,'error'); }
+    finally { btn.disabled = false; btn.textContent = '扫描子网'; }
+}
+
+// ── Step 3: 设备身份验证 ──
+async function diVerifyDevice() {
+    const btn = document.getElementById('di-btn-verify');
+    btn.disabled = true; btn.textContent = '验证中...';
+    const result = document.getElementById('di-verify-result');
+    result.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted);">正在验证设备身份...</div>';
+    try {
+        const ip = document.getElementById('di-verify-ip').value;
+        const port = document.getElementById('di-verify-port').value;
+        const r = await api(`${API}/drone-integration/device/verify?ip=${ip}&port=${port}`, {method:'POST'});
+        const d = r.data;
+        result.innerHTML = `
+            <div class="panel"><div class="panel-header"><span>验证结果: ${badge(d.verified?'通过':'未通过',{verified:'success',unverified:'danger'})}</span></div>
+            <table><thead><tr><th>项目</th><th>值</th></tr></thead><tbody>
+                <tr><td>设备型号</td><td>${d.device_model||'<span style="color:var(--muted);">未知</span>'}</td></tr>
+                <tr><td>制造商</td><td>${d.manufacturer||'<span style="color:var(--muted);">未知</span>'}</td></tr>
+                <tr><td>固件版本</td><td>${d.firmware_version||'<span style="color:var(--muted);">未知</span>'}</td></tr>
+                <tr><td>支持协议</td><td>${(d.supported_protocols||[]).join(', ')||'<span style="color:var(--muted);">无</span>'}</td></tr>
+                <tr><td>协议兼容</td><td>${badge(d.protocol_compatible?'兼容':'不兼容',{compatible:'success',incompatible:'danger'})}</td></tr>
+                ${d.protocol_issues?.length?`<tr><td>协议问题</td><td style="color:var(--danger);">${d.protocol_issues.join('; ')}</td></tr>`:''}
+                ${d.recommendations?.length?`<tr><td>建议</td><td>${d.recommendations.map(r=>`<div style="font-size:12px;color:var(--warning);">• ${r}</div>`).join('')}</td></tr>`:''}
+            </tbody></table></div>
+            ${d.report ? `<pre style="margin-top:12px;padding:12px;background:var(--bg);border-radius:var(--radius);font-family:var(--mono);font-size:11px;color:var(--text2);white-space:pre-wrap;overflow-x:auto;">${d.report}</pre>` : ''}
+            <div style="margin-top:12px;text-align:right;"><button class="btn btn-primary" onclick="diNext()">下一步 →</button></div>`;
+    } catch(ex) { result.innerHTML = `<div style="color:var(--danger);padding:16px;text-align:center;">验证失败: ${ex.message}</div>`; toast(ex.message,'error'); }
+    finally { btn.disabled = false; btn.textContent = '验证设备'; }
+}
+
+// ── Step 4: 系统整合配置 ──
+async function diRegisterDevice() {
+    const btn = document.getElementById('di-btn-reg');
+    btn.disabled = true; btn.textContent = '注册中...';
+    const result = document.getElementById('di-reg-result');
+    try {
+        const params = new URLSearchParams({
+            drone_id: document.getElementById('di-reg-drone').value,
+            device_name: document.getElementById('di-reg-name').value,
+            ip_address: document.getElementById('di-reg-ip').value,
+            port: document.getElementById('di-reg-port').value,
+            protocol: document.getElementById('di-reg-proto').value,
+            auth_type: document.getElementById('di-reg-auth').value,
+            encryption_enabled: document.getElementById('di-reg-enc-type').value !== '',
+            heartbeat_interval: document.getElementById('di-reg-hb').value,
+        });
+        const model = document.getElementById('di-reg-model').value;
+        const fw = document.getElementById('di-reg-fw').value;
+        const cred = document.getElementById('di-reg-cred').value;
+        const encType = document.getElementById('di-reg-enc-type').value;
+        const encKey = document.getElementById('di-reg-enc-key').value;
+        if (model) params.append('device_model', model);
+        if (fw) params.append('firmware_version', fw);
+        if (cred) params.append('auth_credential', cred);
+        if (encType) params.append('encryption_type', encType);
+        if (encKey) params.append('encryption_key', encKey);
+
+        const r = await api(`${API}/drone-integration/device/register?${params}`, {method:'POST'});
+        const d = r.data;
+        DI.registeredDevice = d;
+        result.innerHTML = `<div style="padding:16px;background:rgba(16,185,129,.1);border-radius:var(--radius);color:var(--success);">
+            <strong>✅ 设备注册成功!</strong><br>
+            设备ID: ${d?.id||'-'}<br>
+            设备名称: ${d?.device_name||'-'}<br>
+            IP: ${d?.ip_address||'-'}:${d?.port||'-'}<br>
+            协议: ${d?.protocol||'-'} | 加密: ${d?.encryption_enabled?'已启用':'未启用'}<br>
+            <span style="font-size:11px;color:var(--text2);">设备已加入系统，可进行下一步测试</span></div>
+            <div style="margin-top:12px;text-align:right;"><button class="btn btn-primary" onclick="diNext()">下一步 →</button></div>`;
+        toast('设备注册成功');
+    } catch(ex) { result.innerHTML = `<div style="color:var(--danger);padding:16px;">注册失败: ${ex.message}</div>`; toast(ex.message,'error'); }
+    finally { btn.disabled = false; btn.textContent = '注册设备'; }
+}
+
+// ── Step 5: 数据传输测试 ──
+async function diTestConnection() {
+    const deviceId = document.getElementById('di-test-device').value;
+    const result = document.getElementById('di-test-result');
+    result.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted);">连接测试中...</div>';
+    try {
+        const r = await api(`${API}/drone-integration/device/${deviceId}/test-connection`, {method:'POST'});
+        const d = r.data;
+        result.innerHTML = `
+            <div class="panel"><div class="panel-header"><span>连接测试</span></div>
+            <table><thead><tr><th>项目</th><th>结果</th></tr></thead><tbody>
+                <tr><td>状态</td><td>${badge(d.success?'连接成功':'连接失败',{success:'success',failed:'danger'})}</td></tr>
+                <tr><td>IP</td><td class="mono">${d.ip}:${d.port}</td></tr>
+                <tr><td>响应时间</td><td>${d.response_time_ms!=null?d.response_time_ms+'ms':'-'}</td></tr>
+                <tr><td>设备状态</td><td>${badge(d.status)}</td></tr>
+            </tbody></table></div>`;
+    } catch(ex) { result.innerHTML = `<div style="color:var(--danger);padding:16px;">连接测试失败: ${ex.message}</div>`; toast(ex.message,'error'); }
+}
+
+async function diTestTransmission() {
+    const btn = document.getElementById('di-btn-test');
+    btn.disabled = true; btn.textContent = '测试中...';
+    const result = document.getElementById('di-test-result');
+    result.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted);">数据传输测试中...</div>';
+    try {
+        const deviceId = document.getElementById('di-test-device').value;
+        const dataType = document.getElementById('di-test-type').value;
+        const r = await api(`${API}/drone-integration/transmission/test?device_id=${deviceId}&data_type=${dataType}`, {method:'POST'});
+        const d = r.data;
+        let html = `<div class="panel"><div class="panel-header"><span>传输测试结果</span>${badge(d.success?'成功':'失败',{success:'success',failed:'danger'})}</div>
+        <div style="padding:12px;font-size:13px;color:var(--text2);">${d.message}</div>`;
+        if (dataType === 'rfid_json' || dataType === 'both') {
+            const rfid = d.rfid_result||d;
+            html += `<table><thead><tr><th>项目</th><th>值</th></tr></thead><tbody>
+                <tr><td>RFID数据文件</td><td class="mono" style="font-size:11px;">${rfid.file_path||'-'}</td></tr>
+                <tr><td>文件大小</td><td>${rfid.file_size!=null?(rfid.file_size/1024).toFixed(1)+'KB':'-'}</td></tr>
+                <tr><td>标签数量</td><td>${rfid.tag_count||0}</td></tr>
+            </tbody></table>`;
+        }
+        if (dataType === 'video' || dataType === 'both') {
+            const video = d.video_result||d;
+            html += `<table><thead><tr><th>项目</th><th>值</th></tr></thead><tbody>
+                <tr><td>视频流</td><td>${badge(video.success?'可用':'不可用',{available:'success',unavailable:'danger'})}</td></tr>
+                <tr><td>RTSP地址</td><td class="mono" style="font-size:11px;">${video.rtsp_url||'-'}</td></tr>
+            </tbody></table>`;
+        }
+        html += '</div>';
+        result.innerHTML = html;
+        if (d.success) toast('数据传输测试通过', 'success');
+    } catch(ex) { result.innerHTML = `<div style="color:var(--danger);padding:16px;">传输测试失败: ${ex.message}</div>`; toast(ex.message,'error'); }
+    finally { btn.disabled = false; btn.textContent = '开始测试'; }
+}
+
+// ── Step 6: 自动化任务 ──
+async function diCreateTask() {
+    const btn = document.getElementById('di-btn-test');
+    const result = document.getElementById('di-task-create-result');
+    try {
+        const params = new URLSearchParams({
+            device_id: document.getElementById('di-task-device').value,
+            task_name: document.getElementById('di-task-name').value,
+            task_type: document.getElementById('di-task-type').value,
+            schedule_type: document.getElementById('di-task-sched-type').value,
+            schedule_value: document.getElementById('di-task-sched-val').value,
+            target_storage_path: document.getElementById('di-task-path').value,
+            video_duration: document.getElementById('di-task-vdur').value,
+            video_resolution: document.getElementById('di-task-vres').value,
+            rfid_read_duration: document.getElementById('di-task-rdur').value,
+        });
+        const r = await api(`${API}/drone-integration/tasks?${params}`, {method:'POST'});
+        result.innerHTML = `<div style="padding:12px;background:rgba(16,185,129,.1);border-radius:var(--radius);color:var(--success);">✅ 任务创建成功! ID: ${r.data?.id}</div>`;
+        toast('任务创建成功');
+        diRefreshTaskList();
+    } catch(ex) { result.innerHTML = `<div style="color:var(--danger);padding:12px;">创建失败: ${ex.message}</div>`; toast(ex.message,'error'); }
+}
+
+async function diRefreshTaskList() {
+    try {
+        const r = await api(`${API}/drone-integration/tasks`);
+        const tasks = r.data?.tasks||[];
+        document.getElementById('di-task-list').innerHTML = tasks.length ? tasks.map(t => `
+            <tr>
+                <td>${t.task_name}</td><td>${t.task_type==='both'?'视频+RFID':t.task_type==='video_capture'?'视频采集':'RFID读取'}</td>
+                <td><span class="badge badge-info">${t.schedule_type}</span> ${t.schedule_value}</td>
+                <td>${badge(t.enabled?'启用':'禁用',{enabled:'success',disabled:'muted'})}</td>
+                <td>${t.last_run_at?fmtTime(t.last_run_at):'-'}</td>
+                <td>${t.run_count||0}</td>
+                <td><div class="row-actions">
+                    <button class="btn btn-outline btn-sm" onclick="diRunTask(${t.id})">执行</button>
+                    <button class="btn btn-outline btn-sm" onclick="diToggleTask(${t.id},${!t.enabled})">${t.enabled?'禁用':'启用'}</button>
+                    <button class="btn btn-danger btn-sm" onclick="diDeleteTask(${t.id})">删除</button>
+                </div></td>
+            </tr>`).join('') : '<tr class="empty-row"><td colspan="7">暂无自动化任务</td></tr>';
+    } catch(e) { document.getElementById('di-task-list').innerHTML = `<tr class="empty-row"><td colspan="7">加载失败: ${e.message}</td></tr>`; }
+}
+
+async function diRunTask(id) {
+    try { const r = await api(`${API}/drone-integration/tasks/${id}/run`, {method:'POST'}); toast(r.message); diRefreshTaskList(); } catch(ex) { toast(ex.message,'error'); }
+}
+async function diToggleTask(id, enable) {
+    try { const r = await api(`${API}/drone-integration/tasks/${id}?enabled=${enable}`, {method:'PUT'}); toast(r.message); diRefreshTaskList(); } catch(ex) { toast(ex.message,'error'); }
+}
+async function diDeleteTask(id) {
+    if (!confirm('确认删除该任务？')) return;
+    try { await api(`${API}/drone-integration/tasks/${id}`, {method:'DELETE'}); toast('任务已删除'); diRefreshTaskList(); } catch(ex) { toast(ex.message,'error'); }
+}
+
+async function diLoadTasks() { diRefreshTaskList(); }
+
+// ── Step 7: 监控与日志 ──
+async function diLoadMonitor() {
+    try {
+        const r = await api(`${API}/drone-integration/monitor/status`);
+        const d = r.data;
+        document.getElementById('di-mon-total').textContent = d.total||0;
+        document.getElementById('di-mon-online').textContent = d.online_count||0;
+        document.getElementById('di-mon-offline').textContent = d.offline_count||0;
+        const devices = d.devices||[];
+        document.getElementById('di-mon-devices').innerHTML = devices.length ? devices.map(dv => `
+            <tr>
+                <td>${dv.device_name}</td>
+                <td class="mono">${dv.ip_address}:${dv.port}</td>
+                <td><span class="badge badge-info">${dv.protocol}</span></td>
+                <td>${badge(dv.status)}</td>
+                <td>${dv.last_connected_at?fmtTime(dv.last_connected_at):'从未连接'}</td>
+            </tr>`).join('') : '<tr class="empty-row"><td colspan="5">暂无注册设备</td></tr>';
+    } catch(e) { /* ignore */ }
+}
+
+async function diLoadLogs() {
+    try {
+        const filter = document.getElementById('di-log-filter').value;
+        const params = new URLSearchParams({limit: '50'});
+        if (filter) params.append('log_type', filter);
+        const r = await api(`${API}/drone-integration/logs?${params}`);
+        const logs = r.data?.logs||[];
+        document.getElementById('di-mon-logs').textContent = r.data?.total||0;
+        document.getElementById('di-mon-logs-list').innerHTML = logs.length ? logs.map(l => `
+            <tr>
+                <td style="font-size:11px;white-space:nowrap;">${fmtShort(l.created_at)}</td>
+                <td>${badge(l.log_type)}</td>
+                <td>${l.direction==='send'?'↑ 发送':'↓ 接收'}</td>
+                <td class="truncate" style="max-width:200px;" title="${l.payload_summary||''}">${l.payload_summary||'-'}</td>
+                <td>${badge(l.status)}</td>
+            </tr>`).join('') : '<tr class="empty-row"><td colspan="5">暂无通信日志</td></tr>';
     } catch(e) { /* ignore */ }
 }
 

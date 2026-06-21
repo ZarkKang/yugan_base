@@ -32,11 +32,11 @@ echo ""
 read -p "是否更新系统软件包？(y/n): " update_choice
 if [ "$update_choice" = "y" ]; then
     echo "正在更新软件包..."
-    if command -v apt &amp;&gt; /dev/null; then
+    if command -v apt &> /dev/null; then
         sudo apt update
-    elif command -v dnf &amp;&gt; /dev/null; then
+    elif command -v dnf &> /dev/null; then
         sudo dnf check-update
-    elif command -v pacman &amp;&gt; /dev/null; then
+    elif command -v pacman &> /dev/null; then
         sudo pacman -Sy
     fi
 fi
@@ -44,11 +44,11 @@ fi
 # 安装基础依赖
 echo ""
 echo "正在安装基础依赖..."
-if command -v apt &amp;&gt; /dev/null; then
+if command -v apt &> /dev/null; then
     sudo apt install -y python3 python3-pip python3-venv nodejs npm git curl
-elif command -v dnf &amp;&gt; /dev/null; then
+elif command -v dnf &> /dev/null; then
     sudo dnf install -y python3 python3-pip python3-venv nodejs npm git curl
-elif command -v pacman &amp;&gt; /dev/null; then
+elif command -v pacman &> /dev/null; then
     sudo pacman -S --noconfirm python python-pip nodejs npm git curl
 fi
 
@@ -57,7 +57,7 @@ echo ""
 read -p "是否安装 Docker 和 Docker Compose？(y/n): " docker_choice
 if [ "$docker_choice" = "y" ]; then
     echo "正在安装 Docker..."
-    if command -v apt &amp;&gt; /dev/null; then
+    if command -v apt &> /dev/null; then
         curl -fsSL https://get.docker.com -o get-docker.sh
         sudo sh get-docker.sh
         sudo usermod -aG docker $USER
@@ -93,14 +93,14 @@ mkdir -p drone-db-prototype/backend/traces
 # 安装 Python 依赖
 echo ""
 echo "正在安装 Python 依赖..."
-cd drone-db-prototype/backend &amp;&amp; pip install -r requirements.txt
-cd ../../warehouse-inspection-system/backend &amp;&amp; pip install -r requirements.txt
-cd ../../api-gateway &amp;&amp; pip install -r requirements.txt
+cd drone-db-prototype/backend && pip install -r requirements.txt
+cd ../../warehouse-inspection-system/backend && pip install -r requirements.txt
+cd ../../api-gateway && pip install -r requirements.txt
 
 # 安装 Node.js 依赖
 echo ""
 echo "正在安装 Node.js 依赖..."
-cd ../desktop-app &amp;&amp; npm install
+cd ../desktop-app && npm install
 
 # 配置 systemd 服务（可选）
 echo ""

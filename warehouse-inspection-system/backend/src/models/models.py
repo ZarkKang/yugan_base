@@ -558,3 +558,103 @@ class RFIDData(Base):
 
     # 关系
     drone = relationship("Drone", back_populates="rfid_data")
+
+
+# ========== 无人机图传设备配置表 ==========
+class DroneDevice(Base):
+    """无人机图传设备配置 — 存储无人机图传设备的通信参数"""
+    __tablename__ = "drone_devices"
+
+    id = Column(Integer, primary_key=True, index=True)
+    drone_id = Column(Integer, ForeignKey("drones.id"), nullable=False, comment="关联无人机")
+    device_name = Column(String(100), nullable=False, comment="设备名称")
+    device_model = Column(String(100), nullable=True, comment="设备型号")
+    firmware_version = Column(String(50), nullable=True, comment="固件版本")
+    ip_address = Column(String(45), nullable=False, comment="设备IP地址")
+    port = Column(Integer, default=8080, comment="通信端口")
+    protocol = Column(String(20), default="HTTP", comment="通信协议: HTTP/RTSP/MQTT/WebSocket")
+    auth_type = Column(String(20), default="none", comment="认证方式: none/basic/token/certificate")
+    auth_credential = Column(Text, nullable=True, comment="认证凭据(加密存储)")
+    encryption_enabled = Column(Boolean, default=False, comment="是否启用加密")
+    encryption_type = Column(String(20), nullable=True, comment="加密方式: AES/TLS")
+    encryption_key = Column(Text, nullable=True, comment="加密密钥")
+    status = Column(String(20), default="offline", comment="设备状态: online/offline/connecting/error")
+    last_connected_at = Column(DateTime, nullable=True, comment="最后连接时间")
+    heartbeat_interval = Column(Integer, default=5, comment="心跳间隔(秒)")
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # 关系
+    drone = relationship("Drone", foreign_keys=[drone_id])
+    communication_logs = relationship("CommunicationLog", back_populates="device", cascade="all, delete-orphan")
+    automated_tasks = relationship("AutomatedTask", back_populates="device", cascade="all, delete-orphan")
+
+
+# ========== 通信日志表 ==========
+class CommunicationLog(Base):
+    """设备通信日志 — 记录无人机与基站之间的通信活动"""
+    __tablename__ = "communication_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(Integer, ForeignKey("drone_devices.id"), nullable=False, comment="关联设备")
+    log_type = Column(String(20), nullable=False, comment="日志类型: connection/data/error/heartbeat")
+    direction = Column(String(10), nullable=False, comment="通信方向: send/receive")
+    data_type = Column(String(30), nullable=True, comment="数据类型: video/rfid_json/image/qr_code/command")
+    payload_summary = Column(String(500), nullable=True, comment="数据摘要")
+    payload_size = Column(BigInteger, nullable=True, comment="数据大小(字节)")
+    status = Column(String(20), default="success", comment="状态: success/failed/timeout")
+    error_message = Column(Text, nullable=True, comment="错误信息")
+    response_time_ms = Column(Integer, nullable=True, comment="响应时间(毫秒)")
+    source_ip = Column(String(45), nullable=True, comment="源IP")
+    target_ip = Column(String(45), nullable=True, comment="目标IP")
+    created_at = Column(DateTime, server_default=func.now(), index=True)
+
+    # 关系
+    device = relationship("DroneDevice", back_populates="communication_logs")
+
+
+# ========== 自动化任务表 ==========
+class AutomatedTask(Base):
+    """自动化任务配置 — 无人机定时采集与回传任务"""
+    __tablename__ = "automated_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(Integer, ForeignKey("drone_devices.id"), nullable=False, comment="关联设备")
+    task_name = Column(String(200), nullable=False, comment="任务名称")
+    task_type = Column(String(30), nullable=False, comment="任务类型: video_capture/rfid_read/both")
+    schedule_type = Column(String(20), default="interval", comment="调度类型: interval/cron/once")
+    schedule_value = Column(String(100), nullable=False, comment="调度值: 秒数/cron表达式/ISO时间")
+    target_storage_path = Column(String(500), nullable=False, comment="目标存储路径(基站192.168.1.200)")
+    video_duration = Column(Integer, default=30, comment="视频采集时长(秒)")
+    video_resolution = Column(String(20), default="1920x1080", comment="视频分辨率")
+    rfid_read_duration = Column(Integer, default=10, comment="RFID读取时长(秒)")
+    json_filename_pattern = Column(String(200), default="drone_{device_id}_{timestamp}.json", comment="JSON文件名模板")
+    enabled = Column(Boolean, default=True, comment="是否启用")
+    last_run_at = Column(DateTime, nullable=True, comment="上次执行时间")
+    last_run_status = Column(String(20), nullable=True, comment="上次执行状态: success/failed")
+    next_run_at = Column(DateTime, nullable=True, comment="下次执行时间")
+    run_count = Column(Integer, default=0, comment="执行次数")
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # 关系
+    device = relationship("DroneDevice", back_populates="automated_tasks")
+
+
+# ========== 网络扫描结果表 ==========
+class NetworkScanResult(Base):
+    """网络扫描结果 — 记录设备发现扫描的结果"""
+    __tablename__ = "network_scan_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    scan_id = Column(String(50), index=True, nullable=False, comment="扫描批次ID")
+    ip_address = Column(String(45), nullable=False, comment="发现的IP地址")
+    hostname = Column(String(200), nullable=True, comment="主机名")
+    mac_address = Column(String(17), nullable=True, comment="MAC地址")
+    device_type = Column(String(50), nullable=True, comment="设备类型: drone_transmitter/base_station/unknown")
+    open_ports = Column(Text, nullable=True, comment="开放端口列表JSON")
+    response_time_ms = Column(Float, nullable=True, comment="响应时间(毫秒)")
+    device_info = Column(Text, nullable=True, comment="设备详细信息JSON")
+    verified = Column(Boolean, default=False, comment="是否已通过验证")
+    registered = Column(Boolean, default=False, comment="是否已注册到系统")
+    discovered_at = Column(DateTime, server_default=func.now(), index=True)

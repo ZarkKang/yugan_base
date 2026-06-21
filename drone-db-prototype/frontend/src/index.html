@@ -331,7 +331,14 @@ async function api(url, opts={}) {
         opts.body = JSON.stringify(opts.body);
     }
     const res = await fetch(url, { ...opts, headers: h });
-    if (res.status === 401) { throw new Error('请求未授权'); }
+    if (res.status === 401) {
+        localStorage.removeItem('drone_token');
+        localStorage.removeItem('drone_user');
+        TOKEN = '';
+        document.getElementById('app-screen').style.display = 'none';
+        document.getElementById('login-screen').style.display = 'flex';
+        throw new Error('登录已过期，请重新登录');
+    }
     if (!res.ok) {
         const e = await res.json().catch(()=>({message:res.statusText}));
         throw new Error(e.message || e.detail || '请求失败');
@@ -383,7 +390,7 @@ async function handleLogin(e) {
         localStorage.setItem('drone_token', TOKEN);
         // 获取用户信息
         try {
-            const me = await api(`${API}/auth/me`);
+            const me = await api(`${API}/users/me`);
             USER = me;
         } catch(e) { USER = { username: u, role: 'admin' }; }
         localStorage.setItem('drone_user', JSON.stringify(USER));
@@ -572,8 +579,7 @@ async function uploadVideo() {
     const droneId = document.getElementById('video-drone').value;
     if (droneId) form.append('drone_id', droneId);
     try {
-        const res = await fetch(`${API}/videos/`, { method:'POST', headers:{}, body:form });
-        if (!res.ok) { const e = await res.json().catch(()=>({message:res.statusText})); throw new Error(e.message||e.detail||'上传失败'); }
+        await api(`${API}/videos/`, { method:'POST', body:form });
         toast('上传成功'); document.getElementById('video-file').value=''; loadVideos();
     } catch(ex) { toast(ex.message,'error'); }
 }
@@ -613,8 +619,7 @@ async function uploadImage() {
     const droneId = document.getElementById('image-drone').value;
     if (droneId) form.append('drone_id', droneId);
     try {
-        const res = await fetch(`${API}/images/`, { method:'POST', headers:{}, body:form });
-        if (!res.ok) { const e = await res.json().catch(()=>({message:res.statusText})); throw new Error(e.message||e.detail||'上传失败'); }
+        await api(`${API}/images/`, { method:'POST', body:form });
         toast('上传成功'); document.getElementById('image-file').value=''; loadImages();
     } catch(ex) { toast(ex.message,'error'); }
 }
@@ -702,7 +707,7 @@ async function deleteRfid(id) { if (!confirm('确认删除？')) return; try { a
             TOKEN = data.access_token;
             localStorage.setItem('drone_token', TOKEN);
             try {
-                const me = await fetch(`${API}/auth/me`, {
+                const me = await fetch(`${API}/users/me`, {
                     headers: { 'Authorization': `Bearer ${TOKEN}` }
                 }).then(r => r.json());
                 USER = me;
