@@ -71,3 +71,17 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
+
+# Large binary files
+*.zip
+*.rar
+*.7z
+*.pdf
+*.docx
+*.pptx
+*.apk
+*.dll
+*.pdb
+*.exe
+*.class
+*.dex
