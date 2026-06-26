@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 import logging
 import os
@@ -97,6 +98,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class PathAliasMiddleware(BaseHTTPMiddleware):
+    """路径别名中间件 — 将网关风格路径 /api/warehouse/* 和 /api/drone/* 重写为 /api/v1/*"""
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        for prefix in ("/api/warehouse/", "/api/drone/"):
+            if path.startswith(prefix):
+                new_path = "/api/v1/" + path[len(prefix):]
+                request.scope["path"] = new_path
+                request.scope["raw_path"] = new_path.encode()
+                break
+        return await call_next(request)
+
+
+app.add_middleware(PathAliasMiddleware)
 
 # 静态文件 - 前端资源
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"

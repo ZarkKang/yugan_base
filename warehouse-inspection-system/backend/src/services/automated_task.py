@@ -260,8 +260,13 @@ def create_task(
     rfid_read_duration: int = 10,
     json_filename_pattern: str = "drone_{device_id}_{timestamp}.json",
     enabled: bool = True,
+    target_shelves: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """创建自动化任务"""
+    """创建自动化任务
+
+    Args:
+        target_shelves: 目标货架编号JSON列表字符串, 如 '["SHELF-001","SHELF-002"]'
+    """
     db = SessionLocal()
     try:
         device = db.query(DroneDevice).filter(DroneDevice.id == device_id).first()
@@ -275,6 +280,7 @@ def create_task(
             schedule_type=schedule_type,
             schedule_value=schedule_value,
             target_storage_path=target_storage_path,
+            target_shelves=target_shelves,
             video_duration=video_duration,
             video_resolution=video_resolution,
             rfid_read_duration=rfid_read_duration,
@@ -328,7 +334,7 @@ def update_task(task_id: int, **kwargs) -> Dict[str, Any]:
 
         updatable = [
             "task_name", "task_type", "schedule_type", "schedule_value",
-            "target_storage_path", "video_duration", "video_resolution",
+            "target_storage_path", "target_shelves", "video_duration", "video_resolution",
             "rfid_read_duration", "json_filename_pattern", "enabled",
         ]
         changed = []
@@ -399,6 +405,21 @@ def _calculate_next_run(task: AutomatedTask) -> Optional[datetime]:
     return _calculate_next_run_by_schedule(task.schedule_type, task.schedule_value)
 
 
+def _parse_target_shelves(raw: Optional[str]) -> List[str]:
+    """解析 target_shelves JSON 字符串为列表，容错处理"""
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(parsed, list):
+            return [str(s) for s in parsed]
+        if isinstance(parsed, str):
+            return [parsed]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return []
+
+
 def _calculate_next_run_by_schedule(schedule_type: str, schedule_value: str) -> Optional[datetime]:
     """根据调度类型和值计算下次执行时间"""
     now = datetime.utcnow()
@@ -429,6 +450,7 @@ def _task_to_dict(task: AutomatedTask) -> Dict[str, Any]:
         "schedule_type": task.schedule_type,
         "schedule_value": task.schedule_value,
         "target_storage_path": task.target_storage_path,
+        "target_shelves": _parse_target_shelves(task.target_shelves),
         "video_duration": task.video_duration,
         "video_resolution": task.video_resolution,
         "rfid_read_duration": task.rfid_read_duration,

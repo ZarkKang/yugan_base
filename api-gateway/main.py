@@ -109,7 +109,7 @@ async def proxy_to_drone_db(path: str, request: Request):
         if not service['healthy']:
             raise HTTPException(status_code=503, detail="Drone DB service unavailable")
     
-    url = f"{service['base_url']}/{path}"
+    url = f"{service['base_url']}/api/v1/{path}"
     
     # 转发请求
     body = await request.body() if request.method != "GET" else None
@@ -145,7 +145,7 @@ async def proxy_to_warehouse(path: str, request: Request):
         if not service['healthy']:
             raise HTTPException(status_code=503, detail="Warehouse service unavailable")
     
-    url = f"{service['base_url']}/{path}"
+    url = f"{service['base_url']}/api/v1/{path}"
     
     # 转发请求
     body = await request.body() if request.method != "GET" else None

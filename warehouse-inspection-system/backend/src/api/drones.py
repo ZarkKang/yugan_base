@@ -3,8 +3,8 @@ API路由 - 无人机管理
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
-from datetime import datetime
+from typing import List, Optional, Dict, Any
+from datetime import datetime, timedelta
 from ..db.database import get_db
 from ..schemas.schemas import (
     DroneCreate,
@@ -16,6 +16,11 @@ from ..models.models import Drone
 from ..services.device_verification import upsert_device_from_heartbeat
 
 router = APIRouter(prefix="/drones", tags=["无人机管理"])
+
+# 心跳超时阈值 (秒) — 超过此时间未心跳则视为离线
+ONLINE_TIMEOUT_SECONDS = 30
+# 无人机自动同步的状态三态 (其余 flying/maintenance/retired 不自动覆盖)
+_AUTO_SYNC_STATES = {"idle", "online", "offline"}
 
 
 @router.post("/", response_model=APIResponse)
@@ -36,11 +41,35 @@ def list_drones(
     status: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """获取无人机列表"""
+    """获取无人机列表
+
+    自动检测在线状态：基于 last_seen 字段判断
+    - last_seen 在 30 秒内 → online
+    - last_seen 超过 30 秒或为空 → offline
+    仅对 idle/online/offline 三态自动同步, 不覆盖 flying/maintenance/retired
+    """
     query = db.query(Drone)
     if status:
         query = query.filter(Drone.status == status)
-    return query.all()
+    drones = query.all()
+
+    # 自动同步在线状态 (基于 last_seen)
+    now = datetime.utcnow()
+    threshold = timedelta(seconds=ONLINE_TIMEOUT_SECONDS)
+    changed = False
+    for d in drones:
+        if d.status not in _AUTO_SYNC_STATES:
+            continue  # flying/maintenance/retired 不自动覆盖
+        if d.last_seen and (now - d.last_seen) < threshold:
+            new_status = "online"
+        else:
+            new_status = "offline"
+        if d.status != new_status:
+            d.status = new_status
+            changed = True
+    if changed:
+        db.commit()  # expire_on_commit=True 默认开启, 返回时自动刷新属性
+    return drones
 
 
 @router.get("/{drone_id}", response_model=DroneResponse)

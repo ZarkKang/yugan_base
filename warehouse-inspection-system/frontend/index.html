@@ -455,6 +455,11 @@ const pageTitles = {
 };
 
 function navigate(name) {
+    // 切换页面时清理无人机轮询 timer (避免离开后仍发请求)
+    if (window._dronePollTimer && name !== 'drones') {
+        clearInterval(window._dronePollTimer);
+        window._dronePollTimer = null;
+    }
     currentPage = name;
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
     const nav = document.querySelector(`.nav-item[data-page="${name}"]`);
@@ -517,24 +522,87 @@ async function loadDashboard() {
 // ═══════════════════ PAGE: DRONES ═══════════════════
 async function render_drones(el) {
     el.innerHTML = `
-        <div class="panel"><div class="panel-header"><span>无人机列表</span> <span class="count" id="drone-count"></span><button class="btn btn-primary btn-sm" onclick="openDroneModal()">+ 注册</button></div>
-        <div style="overflow-x:auto"><table><thead><tr><th>编号</th><th>名称</th><th>型号</th><th>状态</th><th>电量</th><th>最后位置</th><th>最后上线</th><th>操作</th></tr></thead><tbody id="drone-tbody"></tbody></table></div></div>`;
+        <div class="panel">
+            <div class="panel-header">
+                <span>无人机列表</span>
+                <span class="count" id="drone-count"></span>
+                <span style="font-size:11px;color:var(--muted);margin-left:8px;">实时状态</span>
+                <span style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+                    <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
+                        <input type="checkbox" id="drone-auto-refresh" checked style="margin:0;"> 自动刷新(10s)
+                    </label>
+                    <button class="btn btn-primary btn-sm" onclick="loadDrones()">刷新</button>
+                    <button class="btn btn-primary btn-sm" onclick="openDroneModal()">+ 注册</button>
+                </span>
+            </div>
+            <div class="stat-row" id="drone-stat-row" style="padding:8px 16px;">
+                <div class="stat-item"><div class="stat-label">总数</div><div class="stat-value" id="drone-stat-total">-</div></div>
+                <div class="stat-item"><div class="stat-label">在线</div><div class="stat-value c-green" id="drone-stat-online">-</div></div>
+                <div class="stat-item"><div class="stat-label">离线</div><div class="stat-value c-red" id="drone-stat-offline">-</div></div>
+                <div class="stat-item"><div class="stat-label">飞行/维护</div><div class="stat-value c-blue" id="drone-stat-busy">-</div></div>
+            </div>
+            <div style="overflow-x:auto"><table><thead><tr><th>编号</th><th>名称</th><th>型号</th><th>实时状态</th><th>电量</th><th>最后位置</th><th>最后心跳</th><th>操作</th></tr></thead><tbody id="drone-tbody"></tbody></table></div>
+        </div>`;
     await loadDrones();
+    // 启动 10s 轮询
+    if (window._dronePollTimer) clearInterval(window._dronePollTimer);
+    window._dronePollTimer = setInterval(() => {
+        const cb = document.getElementById('drone-auto-refresh');
+        if (cb && cb.checked) loadDrones();
+    }, 10000);
+}
+
+// 计算实时在线状态 (基于 last_seen)
+function computeDroneOnlineStatus(d) {
+    if (!d.last_seen) return { online: false, label: '离线', color: 'var(--muted)', relTime: '-' };
+    const now = Date.now();
+    const seen = new Date(d.last_seen + 'Z').getTime(); // 后端 UTC -> 本地
+    const diff = (now - seen) / 1000;
+    if (diff < 30) return { online: true, label: '在线', color: 'var(--success)', relTime: `${Math.floor(diff)}秒前` };
+    if (diff < 60) return { online: false, label: '离线', color: 'var(--danger)', relTime: `${Math.floor(diff)}秒前` };
+    if (diff < 3600) return { online: false, label: '离线', color: 'var(--danger)', relTime: `${Math.floor(diff/60)}分钟前` };
+    return { online: false, label: '离线', color: 'var(--muted)', relTime: `${Math.floor(diff/3600)}小时前` };
 }
 
 async function loadDrones() {
     try {
         const data = await api(`${API}/drones/`);
         const drones = Array.isArray(data) ? data : (data.data||data.items||[]);
-        document.getElementById('drone-count').textContent = `${drones.length} 台`;
-        document.getElementById('drone-tbody').innerHTML = drones.length ? drones.map(d => `
+        // 统计
+        let online=0, offline=0, busy=0;
+        drones.forEach(d => {
+            const st = (d.status||'').toLowerCase();
+            const o = computeDroneOnlineStatus(d);
+            if (o.online) online++;
+            else if (st==='flying' || st==='maintenance') busy++;
+            else offline++;
+        });
+        const setStat = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+        setStat('drone-count', `${drones.length} 台`);
+        setStat('drone-stat-total', drones.length);
+        setStat('drone-stat-online', online);
+        setStat('drone-stat-offline', offline);
+        setStat('drone-stat-busy', busy);
+        document.getElementById('drone-tbody').innerHTML = drones.length ? drones.map(d => {
+            const o = computeDroneOnlineStatus(d);
+            const st = (d.status||'').toLowerCase();
+            // 实时状态点: 在线绿/离线灰/飞行蓝/维护黄
+            let dotColor = o.color, dotLabel = o.label;
+            if (st==='flying') { dotColor = 'var(--blue)'; dotLabel = '飞行中'; }
+            else if (st==='maintenance') { dotColor = '#f59e0b'; dotLabel = '维护中'; }
+            else if (st==='retired') { dotColor = 'var(--muted)'; dotLabel = '已退役'; }
+            return `
             <tr>
-                <td class="mono">${d.drone_code}</td><td>${d.drone_name||'-'}</td><td>${d.model||'-'}</td>
-                <td>${badge(d.status)}</td><td>${d.battery_level!=null?d.battery_level+'%':'-'}</td>
+                <td class="mono">${d.drone_code}</td>
+                <td>${d.drone_name||'-'}</td>
+                <td>${d.model||'-'}</td>
+                <td><span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:8px;height:8px;border-radius:50%;background:${dotColor};display:inline-block;${o.online?'animation:pulse 2s infinite;':''}"></span>${dotLabel}</span></td>
+                <td>${d.battery_level!=null?d.battery_level+'%':'-'}</td>
                 <td class="mono" style="font-size:11px;">${d.last_position_x!=null?`(${d.last_position_x?.toFixed(1)},${d.last_position_y?.toFixed(1)},${d.last_position_z?.toFixed(1)})`:'-'}</td>
-                <td>${fmtTime(d.last_seen)}</td>
+                <td class="mono" style="font-size:11px;color:var(--muted);">${o.relTime}</td>
                 <td><div class="row-actions"><button class="btn btn-outline btn-sm" onclick="editDrone(${d.id})">编辑</button><button class="btn btn-danger btn-sm" onclick="deleteDrone(${d.id})">删除</button></div></td>
-            </tr>`).join('') : '<tr class="empty-row"><td colspan="8">暂无无人机，请点击"注册"</td></tr>';
+            </tr>`;
+        }).join('') : '<tr class="empty-row"><td colspan="8">暂无无人机，请点击"注册"</td></tr>';
     } catch(e) { document.getElementById('drone-tbody').innerHTML = `<tr class="empty-row"><td colspan="8">加载失败: ${e.message}</td></tr>`; }
 }
 
@@ -1469,8 +1537,47 @@ function diSetStep(n) {
     diStep = n;
     document.querySelectorAll('.di-step').forEach(el => el.classList.toggle('active', el.dataset.step == n));
     document.querySelectorAll('.di-panel').forEach(el => el.style.display = el.dataset.step == n ? 'block' : 'none');
-    if (n === 6) { diLoadTasks(); diRefreshTaskList(); }
+    if (n === 6) { diLoadTasks(); diRefreshTaskList(); diLoadShelves(); }
     if (n === 7) { diLoadMonitor(); diLoadLogs(); }
+}
+
+// 加载货架列表渲染到任务配置多选框
+async function diLoadShelves() {
+    const box = document.getElementById('di-task-shelves-box');
+    if (!box) return;
+    try {
+        const data = await api(`${API}/shelves/`);
+        const shelves = Array.isArray(data) ? data : (data.data || []);
+        if (!shelves.length) {
+            box.innerHTML = '<span style="color:var(--muted);font-size:11px;">暂无货架, 请先在"货架管理"中添加</span>';
+            return;
+        }
+        box.innerHTML = shelves.map(s => `
+            <label style="display:inline-flex;align-items:center;gap:4px;padding:4px 8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:11px;">
+                <input type="checkbox" class="di-task-shelf-cb" value="${s.shelf_code}" onchange="diUpdateShelvesCount()" style="margin:0;">
+                <span class="mono">${s.shelf_code}</span>
+                <span style="color:var(--muted);">${s.shelf_name||''}</span>
+            </label>
+        `).join('');
+        diUpdateShelvesCount();
+    } catch (e) {
+        box.innerHTML = `<span style="color:var(--danger);font-size:11px;">加载失败: ${e.message}</span>`;
+    }
+}
+
+function diToggleAllShelves(all) {
+    document.querySelectorAll('.di-task-shelf-cb').forEach(cb => cb.checked = all);
+    diUpdateShelvesCount();
+}
+
+function diUpdateShelvesCount() {
+    const n = document.querySelectorAll('.di-task-shelf-cb:checked').length;
+    const el = document.getElementById('di-task-shelves-count');
+    if (el) el.textContent = `已选 ${n} 个`;
+}
+
+function diGetSelectedShelves() {
+    return Array.from(document.querySelectorAll('.di-task-shelf-cb:checked')).map(cb => cb.value);
 }
 
 function diNext() { if (diStep < 7) diSetStep(diStep + 1); }
@@ -1601,6 +1708,17 @@ async function render_drone_integration(el) {
                     <div class="field"><label>设备ID *</label><input type="number" id="di-task-device" min="1" value="1"></div>
                     <div class="field"><label>任务名称 *</label><input type="text" id="di-task-name" value="定时巡检采集"></div>
                     <div class="field"><label>任务类型</label><select id="di-task-type"><option value="both">视频+RFID</option><option value="video_capture">视频采集</option><option value="rfid_read">RFID读取</option></select></div>
+                    <div class="field" style="grid-column:span 3;">
+                        <label>目标货架 <span style="font-size:10px;color:var(--muted);">(可多选, 留空则巡检全部货架)</span></label>
+                        <div id="di-task-shelves-box" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1px solid var(--border);border-radius:var(--radius);max-height:120px;overflow-y:auto;background:var(--bg);">
+                            <span style="color:var(--muted);font-size:11px;">加载中...</span>
+                        </div>
+                        <div style="font-size:10px;color:var(--muted);margin-top:4px;display:flex;gap:8px;">
+                            <a href="javascript:void(0)" onclick="diToggleAllShelves(true)" style="color:var(--blue);">全选</a>
+                            <a href="javascript:void(0)" onclick="diToggleAllShelves(false)" style="color:var(--muted);">清空</a>
+                            <span id="di-task-shelves-count" style="margin-left:auto;">已选 0 个</span>
+                        </div>
+                    </div>
                     <div class="field"><label>调度类型</label><select id="di-task-sched-type" onchange="document.getElementById('di-task-cron-hint').style.display=this.value==='cron'?'block':'none'"><option value="interval">间隔(秒)</option><option value="cron">Cron表达式</option><option value="once">一次性</option></select></div>
                     <div class="field"><label>调度值</label><input type="text" id="di-task-sched-val" value="60"><span id="di-task-cron-hint" style="font-size:10px;color:var(--muted);display:none;">如: */5 表示每5分钟</span></div>
                     <div class="field"><label>目标路径</label><input type="text" id="di-task-path" value="drone_data"></div>
@@ -1616,7 +1734,7 @@ async function render_drone_integration(el) {
                 <div id="di-task-create-result" style="margin-top:12px;"></div>
             </div></div>
             <div class="panel"><div class="panel-header"><span>任务列表</span><button class="btn btn-ghost btn-sm" onclick="diRefreshTaskList()">刷新</button></div>
-            <div style="overflow-x:auto"><table><thead><tr><th>名称</th><th>类型</th><th>调度</th><th>状态</th><th>上次执行</th><th>执行次数</th><th>操作</th></tr></thead><tbody id="di-task-list"></tbody></table></div></div>
+            <div style="overflow-x:auto"><table><thead><tr><th>名称</th><th>类型</th><th>目标货架</th><th>调度</th><th>状态</th><th>上次执行</th><th>执行次数</th><th>操作</th></tr></thead><tbody id="di-task-list"></tbody></table></div></div>
         </div>
 
         <!-- Step 7: 监控与日志 -->
@@ -1887,6 +2005,7 @@ async function diCreateTask() {
     const btn = document.getElementById('di-btn-test');
     const result = document.getElementById('di-task-create-result');
     try {
+        const selectedShelves = diGetSelectedShelves();
         const params = new URLSearchParams({
             device_id: document.getElementById('di-task-device').value,
             task_name: document.getElementById('di-task-name').value,
@@ -1898,8 +2017,12 @@ async function diCreateTask() {
             video_resolution: document.getElementById('di-task-vres').value,
             rfid_read_duration: document.getElementById('di-task-rdur').value,
         });
+        // 附带目标货架列表 (JSON字符串)
+        if (selectedShelves.length > 0) {
+            params.append('target_shelves', JSON.stringify(selectedShelves));
+        }
         const r = await api(`${API}/drone-integration/tasks?${params}`, {method:'POST'});
-        result.innerHTML = `<div style="padding:12px;background:rgba(16,185,129,.1);border-radius:var(--radius);color:var(--success);">✅ 任务创建成功! ID: ${r.data?.id}</div>`;
+        result.innerHTML = `<div style="padding:12px;background:rgba(16,185,129,.1);border-radius:var(--radius);color:var(--success);">✅ 任务创建成功! ID: ${r.data?.id}${selectedShelves.length?` (目标货架: ${selectedShelves.length}个)`:''}</div>`;
         toast('任务创建成功');
         diRefreshTaskList();
     } catch(ex) { result.innerHTML = `<div style="color:var(--danger);padding:12px;">创建失败: ${ex.message}</div>`; toast(ex.message,'error'); }
@@ -1909,9 +2032,15 @@ async function diRefreshTaskList() {
     try {
         const r = await api(`${API}/drone-integration/tasks`);
         const tasks = r.data?.tasks||[];
-        document.getElementById('di-task-list').innerHTML = tasks.length ? tasks.map(t => `
+        document.getElementById('di-task-list').innerHTML = tasks.length ? tasks.map(t => {
+            const shelves = Array.isArray(t.target_shelves) ? t.target_shelves : [];
+            const shelvesView = shelves.length
+                ? `<span class="mono" style="font-size:11px;">${shelves.length}个: ${shelves.slice(0,2).join(', ')}${shelves.length>2?'...':''}</span>`
+                : '<span style="color:var(--muted);font-size:11px;">全部</span>';
+            return `
             <tr>
                 <td>${t.task_name}</td><td>${t.task_type==='both'?'视频+RFID':t.task_type==='video_capture'?'视频采集':'RFID读取'}</td>
+                <td>${shelvesView}</td>
                 <td><span class="badge badge-info">${t.schedule_type}</span> ${t.schedule_value}</td>
                 <td>${badge(t.enabled?'启用':'禁用',{enabled:'success',disabled:'muted'})}</td>
                 <td>${t.last_run_at?fmtTime(t.last_run_at):'-'}</td>
@@ -1921,8 +2050,9 @@ async function diRefreshTaskList() {
                     <button class="btn btn-outline btn-sm" onclick="diToggleTask(${t.id},${!t.enabled})">${t.enabled?'禁用':'启用'}</button>
                     <button class="btn btn-danger btn-sm" onclick="diDeleteTask(${t.id})">删除</button>
                 </div></td>
-            </tr>`).join('') : '<tr class="empty-row"><td colspan="7">暂无自动化任务</td></tr>';
-    } catch(e) { document.getElementById('di-task-list').innerHTML = `<tr class="empty-row"><td colspan="7">加载失败: ${e.message}</td></tr>`; }
+            </tr>`;
+        }).join('') : '<tr class="empty-row"><td colspan="8">暂无自动化任务</td></tr>';
+    } catch(e) { document.getElementById('di-task-list').innerHTML = `<tr class="empty-row"><td colspan="8">加载失败: ${e.message}</td></tr>`; }
 }
 
 async function diRunTask(id) {

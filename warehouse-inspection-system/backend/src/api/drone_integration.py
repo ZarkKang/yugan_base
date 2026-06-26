@@ -423,6 +423,7 @@ def create_automated_task(
     schedule_type: str = Query("interval", description="调度类型: interval/cron/once"),
     schedule_value: str = Query(..., description="调度值: 秒数/cron表达式/ISO时间"),
     target_storage_path: str = Query("drone_data", description="基站目标存储路径"),
+    target_shelves: Optional[str] = Query(None, description='目标货架编号JSON列表,如 ["SHELF-001","SHELF-002"]'),
     video_duration: int = Query(30, description="视频采集时长(秒)"),
     video_resolution: str = Query("1920x1080", description="视频分辨率"),
     rfid_read_duration: int = Query(10, description="RFID读取时长(秒)"),
@@ -441,6 +442,9 @@ def create_automated_task(
     - interval: 间隔秒数 (如 "60" 表示每60秒)
     - cron: cron表达式 (如 "*/5" 表示每5分钟)
     - once: 指定时间ISO格式 (如 "2026-06-21T12:00:00")
+
+    target_shelves:
+        目标货架编号JSON列表字符串, 如 '["SHELF-001","SHELF-002"]'
     """
     try:
         result = create_task(
@@ -450,6 +454,7 @@ def create_automated_task(
             schedule_type=schedule_type,
             schedule_value=schedule_value,
             target_storage_path=target_storage_path,
+            target_shelves=target_shelves,
             video_duration=video_duration,
             video_resolution=video_resolution,
             rfid_read_duration=rfid_read_duration,

@@ -625,6 +625,7 @@ class AutomatedTask(Base):
     schedule_type = Column(String(20), default="interval", comment="调度类型: interval/cron/once")
     schedule_value = Column(String(100), nullable=False, comment="调度值: 秒数/cron表达式/ISO时间")
     target_storage_path = Column(String(500), nullable=False, comment="目标存储路径(基站192.168.1.200)")
+    target_shelves = Column(Text, nullable=True, comment="目标货架编号JSON列表,如[\"SHELF-001\",\"SHELF-002\"]")
     video_duration = Column(Integer, default=30, comment="视频采集时长(秒)")
     video_resolution = Column(String(20), default="1920x1080", comment="视频分辨率")
     rfid_read_duration = Column(Integer, default=10, comment="RFID读取时长(秒)")
