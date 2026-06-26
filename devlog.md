@@ -1,5 +1,44 @@
 # 域感智能 开发日志
 
+## 2026-06-26 修复：基站兼容 uav_ground_bridge 纯上报型架构（RFID + 设备身份验证）
+- **类型**：[修复] + [新增功能]
+- **影响范围**：warehouse-inspection-system（gateway、drones、drone_integration、device_verification）
+- **详细内容**：
+  本批次修改针对无人机端 `uav_ground_bridge` 实际架构（**纯上报型 HTTP 客户端**，无服务端监听）做基站侧兼容，**无人机端代码零修改**。
+
+  ### A. RFID 数据接收兼容 (gateway.py)
+  1. **根因**：基站预期字符串列表 `["EPC1"]`，无人机端实际发送字典列表 `[{"epc","rssi_dbm","stamp"}]`，导致解析失败。
+  2. **修复**：重写 `_handle_rfid_data` → 新增 `_parse_rfid_payload(payload)`，自动识别两种格式并统一为 `[{"epc","rssi_dbm","stamp"}]`。
+  3. **EPC 校验**：新增 `EPC_PATTERN = ^[0-9A-F]{24}$`（ISO 18000-6C 标准），跳过非法 EPC（如 "INVALID"）但不拒绝整批。
+  4. **RSSI 校验**：范围 `-120 ~ 0` dBm，超出范围记日志并置 None。
+  5. **异步处理**：RFID 接收改为异步队列，立即返回 200，解决无人机端 1.5s 超时问题。
+  6. **幂等性**：基于 `RFID_{drone_id}_{task_code}_{waypoint_id}_{stamp}` 生成 record_code 唯一约束，重复上传自动跳过。
+  7. **新增 `/replay` 接口**：支持无人机端重放 `failed.jsonl` 中的失败记录（心跳 + RFID），幂等处理。
+
+  ### B. 心跳接口增强 (drones.py)
+  - 心跳返回附带基站状态信息（`server_time`、`drone_registered`、`base_status: online`），供无人机端被动获取。
+  - **心跳到达自动维护 `DroneDevice` 记录**（调用 `upsert_device_from_heartbeat`），替代原 `/device/report` 上报接口，无人机端无需额外调用。
+
+  ### C. 设备身份验证新增 heartbeat 模式 (device_verification.py + drone_integration.py)
+  1. **根因**：原 `active` 模式反查无人机 `192.168.1.201:8080`，但无人机端无 HTTP 服务端，永远失败；`passive` 模式需无人机调用 `/device/report`，实际从未调用。
+  2. **新增 `verify_device_by_heartbeat(drone_code)`**：通过 `drones.last_seen` 判断在线（阈值 30s），不反查任何端口。
+  3. **新增 `upsert_device_from_heartbeat(db, drone)`**：心跳到达时自动创建/更新 `DroneDevice`（status=online, last_connected_at=now）。
+  4. **`/device/verify` 路由重构**：默认 `mode` 从 `active` 改为 `heartbeat`，参数从 `ip` 改为 `drone_code`；保留 active/passive 向后兼容。
+  5. **离线检测**：心跳超时时自动将 `DroneDevice.status` 标记为 `offline`。
+
+- **相关文件**：
+  - `warehouse-inspection-system/backend/src/api/gateway.py`（RFID 解析、校验、异步、幂等、/replay）
+  - `warehouse-inspection-system/backend/src/api/drones.py`（心跳增强 + 自动维护 DroneDevice）
+  - `warehouse-inspection-system/backend/src/api/drone_integration.py`（/device/verify 默认 heartbeat）
+  - `warehouse-inspection-system/backend/src/services/device_verification.py`（新增 heartbeat 模式 + upsert 函数）
+  - `scripts/test_heartbeat.json`、`scripts/test_rfid.json`、`scripts/verify_rfid.py`、`scripts/verify_device_table.py`（验证脚本）
+- **验证结果**：
+  - RFID: 字典格式支持✓ EPC校验(2/3合法)✓ 异步1.5s返回✓ 幂等(第二次跳过)✓
+  - 设备验证: heartbeat模式 verified=true✓ DroneDevice自动online✓ active模式向后兼容(返回失败)✓
+- **后续动作**：无人机端联调时仅需正常发送心跳即可通过设备身份验证，无需任何代码修改。
+
+---
+
 ## 2026-06-21 新增：无人机端开发技术文档（供 Codex 开发使用）
 - **类型**：[文档]
 - **影响范围**：无人机端

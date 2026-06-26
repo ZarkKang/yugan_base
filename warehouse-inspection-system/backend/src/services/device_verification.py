@@ -404,3 +404,120 @@ def _verify_device_passive(ip: str) -> Dict[str, Any]:
 
     finally:
         db.close()
+
+
+# ============================================================
+# 心跳验证模式: 利用无人机主动上报的心跳判断在线状态
+# 与无人机端 uav_ground_bridge 的纯上报型架构一致
+# ============================================================
+
+HEARTBEAT_ONLINE_THRESHOLD_SECONDS = 30
+
+
+def upsert_device_from_heartbeat(db, drone: Drone) -> Optional[DroneDevice]:
+    """
+    心跳到达时自动创建/更新 DroneDevice 记录。
+    无人机端只需发送心跳，基站自动维护设备表，无需额外上报接口。
+    """
+    existing = db.query(DroneDevice).filter(
+        DroneDevice.drone_id == drone.id
+    ).first()
+
+    now = datetime.utcnow()
+    if existing:
+        existing.status = "online"
+        existing.last_connected_at = now
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    new_device = DroneDevice(
+        drone_id=drone.id,
+        device_name=f"Drone-{drone.drone_code}",
+        device_model=drone.model or "uav_ground_bridge",
+        firmware_version=None,
+        ip_address="0.0.0.0",
+        port=0,
+        protocol="HTTP-Client",
+        auth_type="none",
+        encryption_enabled=False,
+        status="online",
+        heartbeat_interval=5,
+        last_connected_at=now,
+    )
+    db.add(new_device)
+    db.commit()
+    db.refresh(new_device)
+    logger.info(f"[Verification] 心跳验证: 自动注册设备 {drone.drone_code} (device_id={new_device.id})")
+    return new_device
+
+
+def verify_device_by_heartbeat(drone_code: str, db=None) -> Dict[str, Any]:
+    """
+    心跳验证: 通过 drones 表的 last_seen 判断无人机是否在线。
+    不反查无人机任何端口，与 uav_ground_bridge 纯上报型架构一致。
+
+    在线判据: last_seen 在 HEARTBEAT_ONLINE_THRESHOLD_SECONDS 秒内。
+    """
+    result = {
+        "ip": None,
+        "port": None,
+        "verified": False,
+        "device_model": None,
+        "manufacturer": None,
+        "firmware_version": None,
+        "supported_protocols": ["HTTP"],
+        "protocol_compatible": True,
+        "protocol_issues": [],
+        "raw_device_info": None,
+        "recommendations": [],
+        "verified_at": datetime.utcnow().isoformat(),
+        "mode": "heartbeat",
+    }
+
+    own_session = db is None
+    if own_session:
+        db = SessionLocal()
+    try:
+        drone = db.query(Drone).filter(Drone.drone_code == drone_code).first()
+        if not drone:
+            result["protocol_issues"].append(f"无人机 {drone_code} 未注册")
+            result["recommendations"].append("请先通过 POST /api/v1/drones/ 注册无人机")
+            return result
+
+        result["ip"] = "via-heartbeat"
+        result["device_model"] = drone.model or "uav_ground_bridge"
+
+        now = datetime.utcnow()
+        if drone.last_seen and (now - drone.last_seen).total_seconds() <= HEARTBEAT_ONLINE_THRESHOLD_SECONDS:
+            result["verified"] = True
+            result["raw_device_info"] = {
+                "drone_code": drone.drone_code,
+                "status": drone.status,
+                "battery_level": drone.battery_level,
+                "last_seen": drone.last_seen.isoformat() if drone.last_seen else None,
+                "last_position": {
+                    "x": drone.last_position_x,
+                    "y": drone.last_position_y,
+                    "z": drone.last_position_z,
+                },
+            }
+            # 心跳在线, 自动维护 DroneDevice 记录
+            upsert_device_from_heartbeat(db, drone)
+            logger.info(f"[Verification] 心跳验证通过 {drone_code}: status={drone.status}, last_seen={drone.last_seen}")
+        else:
+            last_seen_str = drone.last_seen.isoformat() if drone.last_seen else "从未"
+            result["protocol_issues"].append(
+                f"无人机 {drone_code} 心跳超时 (最后心跳: {last_seen_str}, 阈值 {HEARTBEAT_ONLINE_THRESHOLD_SECONDS}s)"
+            )
+            result["recommendations"].append("请确认无人机端 uav_ground_bridge 节点已启动并发送心跳")
+            # 标记设备离线
+            device = db.query(DroneDevice).filter(DroneDevice.drone_id == drone.id).first()
+            if device and device.status != "offline":
+                device.status = "offline"
+                db.commit()
+
+        return result
+    finally:
+        if own_session:
+            db.close()

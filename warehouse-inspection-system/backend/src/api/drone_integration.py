@@ -22,7 +22,12 @@ from ..models.models import DroneDevice, CommunicationLog, NetworkScanResult, Au
 from ..schemas.schemas import APIResponse
 from ..core.network import check_connectivity, ping_extended
 from ..services.drone_discovery import discover_devices, scan_target_devices, identify_drone_transmitter
-from ..services.device_verification import verify_device, generate_verification_report, _verify_device_passive
+from ..services.device_verification import (
+    verify_device,
+    generate_verification_report,
+    _verify_device_passive,
+    verify_device_by_heartbeat,
+)
 from ..services.drone_integration import (
     register_device,
     configure_communication,
@@ -160,14 +165,18 @@ def scan_specific_targets(
 
 @router.post("/device/verify", response_model=APIResponse)
 def verify_device_identity(
-    ip: str = Query(..., description="设备IP"),
+    drone_code: Optional[str] = Query(None, description="无人机编号 (heartbeat模式必填)"),
+    ip: Optional[str] = Query(None, description="设备IP (active/passive模式需要)"),
     port: int = Query(8080, description="HTTP端口"),
-    mode: str = Query("active", description="验证模式: active(基站→无人机) / passive(无人机→基站上报)"),
+    mode: str = Query("heartbeat", description="验证模式: heartbeat(默认,利用心跳) / active(基站→无人机) / passive(无人机→基站上报)"),
 ):
     """
     验证设备身份，确认设备型号、固件版本和通信协议兼容性。
 
-    两种模式:
+    三种模式:
+    - heartbeat (默认, 推荐用于 uav_ground_bridge 纯上报型无人机):
+        利用无人机主动上报的心跳判断在线状态，不反查无人机任何端口。
+        需要 drone_code 参数。
     - active:  基站主动向无人机IP发起HTTP请求验证（需无人机端运行HTTP服务）
     - passive: 查询无人机通过 /device/report 端点上报的最新设备信息
 
@@ -178,11 +187,26 @@ def verify_device_identity(
     - 与系统协议的兼容性
     """
     try:
-        if mode == "passive":
-            # 被动模式：查询无人机上报的设备信息
+        if mode == "heartbeat":
+            if not drone_code:
+                return APIResponse(
+                    success=False,
+                    message="heartbeat 模式需要 drone_code 参数",
+                )
+            result = verify_device_by_heartbeat(drone_code)
+        elif mode == "passive":
+            if not ip:
+                return APIResponse(
+                    success=False,
+                    message="passive 模式需要 ip 参数",
+                )
             result = _verify_device_passive(ip)
         else:
-            # 主动模式：基站向无人机发起HTTP请求
+            if not ip:
+                return APIResponse(
+                    success=False,
+                    message="active 模式需要 ip 参数",
+                )
             result = verify_device(ip, port)
 
         report = generate_verification_report(result)

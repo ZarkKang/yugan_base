@@ -13,6 +13,7 @@ from ..schemas.schemas import (
     APIResponse
 )
 from ..models.models import Drone
+from ..services.device_verification import upsert_device_from_heartbeat
 
 router = APIRouter(prefix="/drones", tags=["无人机管理"])
 
@@ -109,4 +110,19 @@ def drone_heartbeat(drone_code: str, payload: dict, db: Session = Depends(get_db
         drone.last_position_z = pos.get("z", drone.last_position_z)
     drone.last_seen = datetime.utcnow()
     db.commit()
-    return APIResponse(success=True, message="心跳已接收")
+    # 心跳到达自动维护 DroneDevice 记录 (替代 /device/report 上报)
+    try:
+        upsert_device_from_heartbeat(db, drone)
+    except Exception as e:
+        # 设备表维护失败不影响心跳接收
+        pass
+    # 增强返回: 附带基站状态信息供无人机端被动获取
+    return APIResponse(
+        success=True,
+        message="心跳已接收",
+        data={
+            "server_time": datetime.utcnow().isoformat(),
+            "drone_registered": True,
+            "base_status": "online",
+        }
+    )

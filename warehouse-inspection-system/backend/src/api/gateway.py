@@ -7,6 +7,7 @@ API路由 - 数据接收网关
 import json
 import base64
 import os
+import re
 import time
 import logging
 import threading
@@ -16,6 +17,7 @@ from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from ..db.database import get_db, SessionLocal
 from ..models.models import (
@@ -37,6 +39,9 @@ router = APIRouter(prefix="/gateway", tags=["数据接收"])
 STORAGE_ROOT = os.environ.get("STORAGE_ROOT", "storage")
 DATA_DIR = os.path.join(STORAGE_ROOT, "gateway")
 os.makedirs(DATA_DIR, exist_ok=True)
+
+# EPC 格式校验: 24字符大写hex (ISO 18000-6C 标准)
+EPC_PATTERN = re.compile(r'^[0-9A-F]{24}$')
 
 # 后台处理队列
 _processing_queue = queue.Queue(maxsize=1000)
@@ -117,7 +122,29 @@ async def receive_data(
 
     # 根据数据类型分类处理
     if request.data_type == "rfid":
-        record_id = _handle_rfid_data(drone, request, db)
+        # 异步处理: 立即返回200, 确保无人机端1.5s超时内收到响应
+        _ensure_processor()
+        try:
+            _processing_queue.put({
+                "type": "rfid",
+                "drone_code": request.drone_code,
+                "drone_id": drone.id,
+                "payload": request.payload,
+                "position_x": request.position_x,
+                "position_y": request.position_y,
+                "position_z": request.position_z,
+                "timestamp": request.timestamp,
+                "metadata": request.metadata,
+            }, block=False)
+        except queue.Full:
+            # 队列满时降级为同步处理
+            record_id = _handle_rfid_data(drone, request, db)
+        else:
+            return DataReceiveResponse(
+                success=True,
+                message="RFID数据已接收，正在后台处理",
+                record_id=None
+            )
     elif request.data_type == "qr_code":
         record_id = _handle_qrcode_data(drone, request, db)
     elif request.data_type == "image":
@@ -176,29 +203,112 @@ def _process_background_task(item: dict):
 
 # ── 3. 数据类型处理器 ──────────────────────────────
 
-def _handle_rfid_data(drone: Drone, request: DataReceiveRequest, db: Session) -> Optional[int]:
+def _parse_rfid_payload(payload) -> list:
     """
-    处理RFID标签数据 — 无人机巡检回传。
-    流程:
-      1. 解析 payload 获取 EPC 列表
-      2. 查 RFIDTag → 获取 sku_id, goods_name, shelf_id
-      3. 存入 InspectionRecord (含解析后的结构化数据)
-      4. 更新无人机位置
+    解析 RFID payload，兼容两种格式:
+    1. 字典列表 (无人机端实际格式): [{"epc":"...","rssi_dbm":-62,"stamp":...}]
+    2. 字符串列表 (旧格式): ["EPC1","EPC2"]
+
+    返回统一的 [{"epc","rssi_dbm","stamp"}] 列表，跳过非法EPC。
     """
     try:
-        tags = json.loads(request.payload) if isinstance(request.payload, str) else request.payload
+        tags = json.loads(payload) if isinstance(payload, str) else payload
         if not isinstance(tags, list):
             tags = [tags]
     except (json.JSONDecodeError, TypeError):
-        tags = [request.payload]
+        tags = [payload]
 
-    # 解析每个EPC → 查RFIDTag获取SKU信息
-    resolved_tags = []  # 结构化: [{"epc":..., "sku_id":..., "goods_name":..., "shelf_id":...}]
-    for epc in tags:
-        rfid_tag = db.query(RFIDTag).filter(RFIDTag.tag_id == epc).first()
+    normalized = []
+    for tag in tags:
+        if isinstance(tag, dict):
+            epc = str(tag.get("epc", "")).upper().strip()
+            rssi = tag.get("rssi_dbm")
+            stamp = tag.get("stamp")
+        elif isinstance(tag, str):
+            epc = tag.upper().strip()
+            rssi = None
+            stamp = None
+        else:
+            continue
+
+        # 校验 EPC: 24字符大写hex
+        if not EPC_PATTERN.match(epc):
+            logger.warning("[Gateway] 跳过非法EPC: %r", epc[:30])
+            continue
+
+        # 校验 RSSI 范围 (如果有)
+        if rssi is not None:
+            try:
+                rssi = int(rssi)
+                if rssi < -120 or rssi > 0:
+                    logger.warning("[Gateway] RSSI超出范围: %s (epc=%s)", rssi, epc)
+                    rssi = None
+            except (ValueError, TypeError):
+                rssi = None
+
+        normalized.append({"epc": epc, "rssi_dbm": rssi, "stamp": stamp})
+
+    return normalized
+
+
+def _process_rfid_payload(item: dict, db: Session) -> Optional[int]:
+    """
+    RFID数据处理核心逻辑 (同步降级和异步队列共用)。
+    支持: 字典格式payload、EPC/RSSI校验、幂等去重(基于record_code)。
+    """
+    drone_id = item["drone_id"]
+    drone = db.query(Drone).filter(Drone.id == drone_id).first()
+    if not drone:
+        logger.warning("[Gateway] 无人机不存在: id=%s", drone_id)
+        return None
+
+    payload = item["payload"]
+    position_x = item.get("position_x")
+    position_y = item.get("position_y")
+    position_z = item.get("position_z")
+    meta = item.get("metadata") or {}
+
+    # 解析并校验
+    tags = _parse_rfid_payload(payload)
+    if not tags:
+        logger.warning("[Gateway] RFID数据为空或全部非法 (drone=%s)", drone.drone_code)
+        _update_drone_position_from_coords(drone, position_x, position_y, position_z, db)
+        return None
+
+    # 幂等键: 同一航点同一时间戳的重复上传只入库一次
+    task_code = meta.get("task_code", "NOTASK")
+    waypoint_id = meta.get("waypoint_id", 0)
+    meta_ts = meta.get("timestamp", time.time())
+    if isinstance(meta_ts, str):
+        try:
+            meta_ts = float(meta_ts)
+        except (ValueError, TypeError):
+            meta_ts = time.time()
+
+    idempotent_key = "RFID_{}_{}_{}_{}".format(drone.id, task_code, waypoint_id, int(meta_ts))
+
+    # 幂等检查: 已存在则跳过
+    existing = db.query(InspectionRecord).filter(
+        InspectionRecord.record_code == idempotent_key
+    ).first()
+    if existing:
+        logger.info("[Gateway] RFID数据幂等跳过(已存在): %s", idempotent_key)
+        _update_drone_position_from_coords(drone, position_x, position_y, position_z, db)
+        return existing.id
+
+    # 批量查询 RFIDTag (避免N+1)
+    epc_list = [t["epc"] for t in tags]
+    rfid_tags = db.query(RFIDTag).filter(RFIDTag.tag_id.in_(epc_list)).all()
+    rfid_map = {rt.tag_id: rt for rt in rfid_tags}
+
+    resolved_tags = []
+    for tag in tags:
+        epc = tag["epc"]
+        rfid_tag = rfid_map.get(epc)
         if rfid_tag and rfid_tag.sku_id:
             resolved_tags.append({
                 "epc": epc,
+                "rssi_dbm": tag["rssi_dbm"],
                 "sku_id": rfid_tag.sku_id,
                 "goods_name": rfid_tag.goods_name,
                 "shelf_id": rfid_tag.shelf_id,
@@ -206,32 +316,56 @@ def _handle_rfid_data(drone: Drone, request: DataReceiveRequest, db: Session) ->
         else:
             resolved_tags.append({
                 "epc": epc,
+                "rssi_dbm": tag["rssi_dbm"],
                 "sku_id": None,
                 "goods_name": rfid_tag.goods_name if rfid_tag else None,
                 "shelf_id": None,
             })
 
-    # 存入巡检记录
     record = InspectionRecord(
-        record_code=f"RFID_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')[:-3]}",
+        record_code=idempotent_key,
         drone_id=drone.id,
-        rfid_data=json.dumps(tags, ensure_ascii=False),
+        rfid_data=json.dumps(epc_list, ensure_ascii=False),
         detected_rfid_tags=json.dumps(resolved_tags, ensure_ascii=False),
         status=InspectionStatus.PENDING,
-        drone_position_x=request.position_x,
-        drone_position_y=request.position_y,
-        drone_position_z=request.position_z,
+        drone_position_x=position_x,
+        drone_position_y=position_y,
+        drone_position_z=position_z,
         inspection_time=datetime.utcnow(),
     )
     db.add(record)
-    db.commit()
-    db.refresh(record)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.query(InspectionRecord).filter(
+            InspectionRecord.record_code == idempotent_key
+        ).first()
+        logger.info("[Gateway] RFID数据并发幂等跳过: %s", idempotent_key)
+        _update_drone_position_from_coords(drone, position_x, position_y, position_z, db)
+        return existing.id if existing else None
 
-    _update_drone_position(drone, request, db)
+    db.refresh(record)
+    _update_drone_position_from_coords(drone, position_x, position_y, position_z, db)
 
     resolved_count = sum(1 for t in resolved_tags if t["sku_id"])
-    logger.info(f"[Gateway] RFID数据: {len(tags)} 标签, {resolved_count} 已识别 (drone={drone.drone_code})")
+    logger.info("[Gateway] RFID数据: %d 标签, %d 已识别 (drone=%s, wp=%s)",
+                len(tags), resolved_count, drone.drone_code, waypoint_id)
     return record.id
+
+
+def _handle_rfid_data(drone: Drone, request: DataReceiveRequest, db: Session) -> Optional[int]:
+    """处理RFID标签数据 (同步降级路径，队列满时调用)。"""
+    item = {
+        "drone_id": drone.id,
+        "payload": request.payload,
+        "position_x": request.position_x,
+        "position_y": request.position_y,
+        "position_z": request.position_z,
+        "timestamp": request.timestamp,
+        "metadata": request.metadata,
+    }
+    return _process_rfid_payload(item, db)
 
 
 def _handle_qrcode_data(drone: Drone, request: DataReceiveRequest, db: Session) -> Optional[int]:
@@ -347,27 +481,11 @@ def _process_image_in_background(item: dict, db: Session):
 
 
 def _process_rfid_in_background(item: dict, db: Session):
-    """后台处理RFID数据"""
+    """后台处理RFID数据 (异步队列调用)"""
     try:
-        tags = json.loads(item["payload"]) if isinstance(item["payload"], str) else item["payload"]
-        if not isinstance(tags, list):
-            tags = [tags]
-
-        for tag_id in tags:
-            # 检查是否已存在
-            existing = db.query(RFIDTag).filter(RFIDTag.tag_id == tag_id).first()
-            if existing:
-                existing.last_read_time = datetime.utcnow()
-            else:
-                new_tag = RFIDTag(
-                    tag_id=tag_id,
-                    last_read_time=datetime.utcnow(),
-                )
-                db.add(new_tag)
-        db.commit()
-        logger.info(f"[Gateway] RFID标签已同步: {len(tags)} 个")
+        _process_rfid_payload(item, db)
     except Exception as e:
-        logger.error(f"[Gateway] RFID后台处理失败: {e}")
+        logger.error(f"[Gateway] RFID后台处理失败: {e}", exc_info=True)
 
 
 # ── 4. 二维码处理 ──────────────────────────────────
@@ -549,15 +667,22 @@ async def read_rfid(
 
 def _update_drone_position(drone: Drone, request: DataReceiveRequest, db: Session):
     """更新无人机最后位置"""
+    _update_drone_position_from_coords(
+        drone, request.position_x, request.position_y, request.position_z, db
+    )
+
+
+def _update_drone_position_from_coords(drone: Drone, x, y, z, db: Session):
+    """更新无人机最后位置 (坐标参数版本，供异步处理使用)"""
     updated = False
-    if request.position_x is not None:
-        drone.last_position_x = request.position_x
+    if x is not None:
+        drone.last_position_x = x
         updated = True
-    if request.position_y is not None:
-        drone.last_position_y = request.position_y
+    if y is not None:
+        drone.last_position_y = y
         updated = True
-    if request.position_z is not None:
-        drone.last_position_z = request.position_z
+    if z is not None:
+        drone.last_position_z = z
         updated = True
     if updated:
         drone.last_seen = datetime.utcnow()
@@ -645,3 +770,79 @@ def compare_inspection_results(
         "extra": resolve_epcs(extra),
         "summary": f"异常: 缺货 {len(missing)} 个, 多货 {len(extra)} 个",
     })
+
+
+# ── 7. 失败数据重放 ──────────────────────────────────
+
+@router.post("/replay", response_model=APIResponse)
+async def replay_failed_records(
+    request: dict,
+    db: Session = Depends(get_db)
+):
+    """
+    重放无人机端 failed.jsonl 中的失败记录。
+
+    无人机端上传失败后会写本地 logs/uav_ground_bridge_failed.jsonl,
+    每行一个 JSON: {"kind":"heartbeat|waypoint_result","url":"...","body":{...},"error":"...","time":...}
+    用户可手动提取这些记录, 通过本接口重新提交。
+    幂等: 已成功入库的记录会自动跳过。
+    """
+    drone_code = request.get("drone_code")
+    records = request.get("records", [])
+
+    if not records:
+        return APIResponse(success=False, message="未提供重放记录")
+
+    # 验证无人机
+    drone = db.query(Drone).filter(Drone.drone_code == drone_code).first() if drone_code else None
+
+    replayed = 0
+    skipped = 0
+    failed = 0
+
+    for record in records:
+        try:
+            kind = record.get("kind", "")
+            body = record.get("body", {})
+
+            if kind == "waypoint_result" and drone:
+                # 重放 RFID 上传
+                item = {
+                    "drone_id": drone.id,
+                    "payload": body.get("payload", ""),
+                    "position_x": body.get("position_x"),
+                    "position_y": body.get("position_y"),
+                    "position_z": body.get("position_z"),
+                    "metadata": body.get("metadata", {}),
+                }
+                result_id = _process_rfid_payload(item, db)
+                if result_id is not None:
+                    replayed += 1
+                else:
+                    skipped += 1
+
+            elif kind == "heartbeat" and drone:
+                # 重放心跳 (仅更新状态, 无需返回值)
+                drone.status = body.get("status", drone.status)
+                drone.battery_level = body.get("battery", drone.battery_level)
+                pos = body.get("position", {})
+                if pos:
+                    drone.last_position_x = pos.get("x", drone.last_position_x)
+                    drone.last_position_y = pos.get("y", drone.last_position_y)
+                    drone.last_position_z = pos.get("z", drone.last_position_z)
+                drone.last_seen = datetime.utcnow()
+                db.commit()
+                replayed += 1
+
+            else:
+                skipped += 1
+
+        except Exception as e:
+            logger.error(f"[Gateway] 重放失败: {e}", exc_info=True)
+            failed += 1
+
+    return APIResponse(
+        success=True,
+        message=f"重放完成: {replayed}条成功, {skipped}条跳过, {failed}条失败",
+        data={"replayed": replayed, "skipped": skipped, "failed": failed}
+    )
