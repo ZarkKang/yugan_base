@@ -1528,8 +1528,16 @@ async function render_drone_integration(el) {
             <div class="panel"><div class="panel-header"><span>设备身份验证</span><span style="font-size:11px;color:var(--muted);">步骤 3/7</span></div>
             <div style="padding:16px;">
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-                    <div class="field"><label>设备IP</label><input type="text" id="di-verify-ip" value="192.168.1.201"></div>
-                    <div class="field"><label>HTTP端口</label><input type="number" id="di-verify-port" value="8080"></div>
+                    <div class="field"><label>无人机编号</label><input type="text" id="di-verify-drone-code" value="DRONE001" placeholder="如 DRONE001"></div>
+                    <div class="field"><label>验证模式</label>
+                        <select id="di-verify-mode" onchange="diToggleMode()">
+                            <option value="heartbeat" selected>heartbeat (推荐，利用心跳)</option>
+                            <option value="active">active (反查无人机HTTP)</option>
+                            <option value="passive">passive (查上报记录)</option>
+                        </select>
+                    </div>
+                    <div class="field" id="di-verify-ip-field" style="display:none;"><label>设备IP</label><input type="text" id="di-verify-ip" value="192.168.1.201"></div>
+                    <div class="field" id="di-verify-port-field" style="display:none;"><label>HTTP端口</label><input type="number" id="di-verify-port" value="8080"></div>
                     <div style="display:flex;align-items:flex-end;gap:8px;">
                         <button class="btn btn-primary" onclick="diVerifyDevice()" id="di-btn-verify">验证设备</button>
                         <button class="btn btn-ghost" onclick="diPrev()">← 上一步</button>
@@ -1731,18 +1739,37 @@ async function diDiscoverTargets() {
 }
 
 // ── Step 3: 设备身份验证 ──
+function diToggleMode() {
+    const mode = document.getElementById('di-verify-mode').value;
+    const showIp = mode === 'active' || mode === 'passive';
+    const showPort = mode === 'active';
+    document.getElementById('di-verify-ip-field').style.display = showIp ? '' : 'none';
+    document.getElementById('di-verify-port-field').style.display = showPort ? '' : 'none';
+}
 async function diVerifyDevice() {
     const btn = document.getElementById('di-btn-verify');
     btn.disabled = true; btn.textContent = '验证中...';
     const result = document.getElementById('di-verify-result');
     result.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted);">正在验证设备身份...</div>';
     try {
-        const ip = document.getElementById('di-verify-ip').value;
-        const port = document.getElementById('di-verify-port').value;
-        const r = await api(`${API}/drone-integration/device/verify?ip=${ip}&port=${port}`, {method:'POST'});
-        const d = r.data;
+        const mode = document.getElementById('di-verify-mode').value;
+        const params = new URLSearchParams({ mode });
+        if (mode === 'heartbeat') {
+            const droneCode = document.getElementById('di-verify-drone-code').value.trim();
+            if (!droneCode) { throw new Error('请填写无人机编号'); }
+            params.set('drone_code', droneCode);
+        } else {
+            const ip = document.getElementById('di-verify-ip').value.trim();
+            if (!ip) { throw new Error('请填写设备IP'); }
+            params.set('ip', ip);
+            if (mode === 'active') {
+                params.set('port', document.getElementById('di-verify-port').value || 8080);
+            }
+        }
+        const r = await api(`${API}/drone-integration/device/verify?${params.toString()}`, {method:'POST'});
+        const d = r.data || {};
         result.innerHTML = `
-            <div class="panel"><div class="panel-header"><span>验证结果: ${badge(d.verified?'通过':'未通过',{verified:'success',unverified:'danger'})}</span></div>
+            <div class="panel"><div class="panel-header"><span>验证结果: ${badge(d.verified?'通过':'未通过',{verified:'success',unverified:'danger'})}</span><span style="font-size:11px;color:var(--muted);margin-left:8px;">模式: ${d.mode||mode}</span></div>
             <table><thead><tr><th>项目</th><th>值</th></tr></thead><tbody>
                 <tr><td>设备型号</td><td>${d.device_model||'<span style="color:var(--muted);">未知</span>'}</td></tr>
                 <tr><td>制造商</td><td>${d.manufacturer||'<span style="color:var(--muted);">未知</span>'}</td></tr>
@@ -1750,8 +1777,9 @@ async function diVerifyDevice() {
                 <tr><td>支持协议</td><td>${(d.supported_protocols||[]).join(', ')||'<span style="color:var(--muted);">无</span>'}</td></tr>
                 <tr><td>协议兼容</td><td>${badge(d.protocol_compatible?'兼容':'不兼容',{compatible:'success',incompatible:'danger'})}</td></tr>
                 ${d.protocol_issues?.length?`<tr><td>协议问题</td><td style="color:var(--danger);">${d.protocol_issues.join('; ')}</td></tr>`:''}
-                ${d.recommendations?.length?`<tr><td>建议</td><td>${d.recommendations.map(r=>`<div style="font-size:12px;color:var(--warning);">• ${r}</div>`).join('')}</td></tr>`:''}
+                ${d.recommendations?.length?`<tr><td>建议</td><td>${d.recommendations.map(rec=>`<div style="font-size:12px;color:var(--warning);">• ${rec}</div>`).join('')}</td></tr>`:''}
             </tbody></table></div>
+            ${d.raw_device_info ? `<tr><td colspan="2" style="padding:8px;background:var(--bg);border-radius:var(--radius);font-size:11px;color:var(--text2);"><details><summary style="cursor:pointer;">原始设备信息</summary><pre style="margin-top:8px;white-space:pre-wrap;">${JSON.stringify(d.raw_device_info, null, 2)}</pre></details></td></tr>` : ''}
             ${d.report ? `<pre style="margin-top:12px;padding:12px;background:var(--bg);border-radius:var(--radius);font-family:var(--mono);font-size:11px;color:var(--text2);white-space:pre-wrap;overflow-x:auto;">${d.report}</pre>` : ''}
             <div style="margin-top:12px;text-align:right;"><button class="btn btn-primary" onclick="diNext()">下一步 →</button></div>`;
     } catch(ex) { result.innerHTML = `<div style="color:var(--danger);padding:16px;text-align:center;">验证失败: ${ex.message}</div>`; toast(ex.message,'error'); }

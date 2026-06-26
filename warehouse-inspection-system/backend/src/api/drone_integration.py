@@ -192,6 +192,7 @@ def verify_device_identity(
                 return APIResponse(
                     success=False,
                     message="heartbeat 模式需要 drone_code 参数",
+                    data={"verified": False, "mode": "heartbeat", "protocol_issues": ["缺少 drone_code 参数"]},
                 )
             result = verify_device_by_heartbeat(drone_code)
         elif mode == "passive":
@@ -199,6 +200,7 @@ def verify_device_identity(
                 return APIResponse(
                     success=False,
                     message="passive 模式需要 ip 参数",
+                    data={"verified": False, "mode": "passive", "protocol_issues": ["缺少 ip 参数"]},
                 )
             result = _verify_device_passive(ip)
         else:
@@ -206,6 +208,7 @@ def verify_device_identity(
                 return APIResponse(
                     success=False,
                     message="active 模式需要 ip 参数",
+                    data={"verified": False, "mode": "active", "protocol_issues": ["缺少 ip 参数"]},
                 )
             result = verify_device(ip, port)
 
