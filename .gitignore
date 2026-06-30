@@ -77,6 +77,30 @@ docker-compose.override.yml
 *.rar
 *.7z
 *.pdf
+
+# Backup files
+*.bak
+*.bak.*
+
+# Drone-side runtime artifacts (logs, snapshots, vendor SDK docs)
+doc/无人机端相关文件/payload/uav_ground_bridge/logs/
+doc/无人机端相关文件/src_0626v1/
+doc/无人机端相关文件/src_0626v1.zip
+doc/无人机端相关文件/payload.zip
+doc/无人机端相关文件/bd1d19b829080d5bb07fba78625f2846.png
+doc/PRE系列一体化模块多接口资料/
+
+# Local network config & cache (contains local IP)
+scripts/.wsl-ip-cache
+scripts/wsl-portforward.ps1
+scripts/install-portforward-task.ps1
+
+# Temporary verification scripts
+scripts/test_create_task.py
+scripts/verify_feature.sh
+
+# Runtime storage
+warehouse-inspection-system/backend/storage/
 *.docx
 *.pptx
 *.apk

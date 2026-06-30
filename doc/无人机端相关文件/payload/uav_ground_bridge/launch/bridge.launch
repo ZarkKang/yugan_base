@@ -1,0 +1,53 @@
+<launch>
+  <arg name="ground_url" default="http://192.168.1.100:8001"/>
+  <arg name="drone_code" default="DRONE001"/>
+  <arg name="rfid_topic" default="/rfid/tags"/>
+  <arg name="odom_topic" default="/Odom_high_freq"/>
+  <arg name="odom_type" default="nav_msgs/Odometry"/>
+  <arg name="battery_topic" default="/mavros/battery"/>
+  <arg name="waypoints_file" default="$(find uav_ground_bridge)/config/waypoints.yaml"/>
+  <arg name="heartbeat_interval" default="5.0"/>
+  <arg name="arrival_radius" default="0.3"/>
+  <arg name="arrival_hold_time" default="2.0"/>
+  <arg name="rfid_window" default="5.0"/>
+  <arg name="enable_waypoint_monitor" default="true"/>
+  <arg name="video_stream" default="udp://@:5600"/>
+  <arg name="enable_video_stream" default="false"/>
+  <arg name="video_device" default="/dev/video0"/>
+  <arg name="video_target_host" default="192.168.1.100"/>
+  <arg name="video_target_port" default="5600"/>
+  <arg name="video_width" default="640"/>
+  <arg name="video_height" default="480"/>
+  <arg name="video_fps" default="30"/>
+  <arg name="video_bitrate" default="1500k"/>
+  <arg name="ffmpeg_path" default="/usr/bin/ffmpeg"/>
+
+  <node pkg="uav_ground_bridge" type="uav_ground_bridge_node.py" name="uav_ground_bridge" output="screen">
+    <param name="ground_url" value="$(arg ground_url)"/>
+    <param name="drone_code" value="$(arg drone_code)"/>
+    <param name="rfid_topic" value="$(arg rfid_topic)"/>
+    <param name="odom_topic" value="$(arg odom_topic)"/>
+    <param name="odom_type" value="$(arg odom_type)"/>
+    <param name="battery_topic" value="$(arg battery_topic)"/>
+    <param name="waypoints_file" value="$(arg waypoints_file)"/>
+    <param name="heartbeat_interval" value="$(arg heartbeat_interval)"/>
+    <param name="arrival_radius" value="$(arg arrival_radius)"/>
+    <param name="arrival_hold_time" value="$(arg arrival_hold_time)"/>
+    <param name="rfid_window" value="$(arg rfid_window)"/>
+    <param name="enable_waypoint_monitor" value="$(arg enable_waypoint_monitor)"/>
+    <param name="video_stream" value="$(arg video_stream)"/>
+  </node>
+
+  <group if="$(arg enable_video_stream)">
+    <node pkg="uav_ground_bridge" type="video_stream_node.py" name="uav_video_stream" output="screen">
+      <param name="ffmpeg_path" value="$(arg ffmpeg_path)"/>
+      <param name="video_device" value="$(arg video_device)"/>
+      <param name="target_host" value="$(arg video_target_host)"/>
+      <param name="target_port" value="$(arg video_target_port)"/>
+      <param name="width" value="$(arg video_width)"/>
+      <param name="height" value="$(arg video_height)"/>
+      <param name="fps" value="$(arg video_fps)"/>
+      <param name="bitrate" value="$(arg video_bitrate)"/>
+    </node>
+  </group>
+</launch>

@@ -1,0 +1,17 @@
+<launch>
+  <arg name="port" default="/dev/ttyTHS0"/>
+  <arg name="baud" default="115200"/>
+  <arg name="power_dbm" default="20"/>
+  <arg name="inventory_count" default="65535"/>
+  <arg name="auto_start" default="true"/>
+  <arg name="dedup_seconds" default="0.5"/>
+
+  <node pkg="rfid_reader" type="e720_node.py" name="e720_rfid" output="screen">
+    <param name="port" value="$(arg port)"/>
+    <param name="baud" value="$(arg baud)"/>
+    <param name="power_dbm" value="$(arg power_dbm)"/>
+    <param name="inventory_count" value="$(arg inventory_count)"/>
+    <param name="auto_start" value="$(arg auto_start)"/>
+    <param name="dedup_seconds" value="$(arg dedup_seconds)"/>
+  </node>
+</launch>
