@@ -1,5 +1,58 @@
 # 域感智能 开发日志
 
+## 2026-06-30 新增：启动脚本环境依赖错误诊断与自动修复机制
+- **类型**：[新增功能] + [优化]
+- **影响范围**：启动.sh（全局）
+- **详细内容**：
+  本批次修改为启动脚本建立了结构化的环境依赖错误处理和自动修复机制，整合启动过程中常见问题的诊断与解决方案命令。
+
+  ### A. 新增诊断与修复函数模块（第6节）
+  1. **diagnose_ensurepip()**：检测 ensurepip 可用性，提供 apt 安装和 get-pip.py 降级方案。
+  2. **diagnose_pip_in_venv()**：检测 venv 中 pip 存在性，提供手动安装和 deb 包解压方案。
+  3. **diagnose_pip_version_conflict()**：检测 numpy>=2 与 opencv 不兼容、pyzbar/libzbar 缺失、psycopg2 编译失败等常见版本冲突。
+  4. **diagnose_postgres_auth()**：检测 PostgreSQL 运行状态和密码认证，提供 pg_hba.conf 修复和无 sudo 时自建实例方案。
+  5. **diagnose_redis()**：检测 Redis 运行状态，提供服务启动和手动启动方案。
+  6. **diagnose_network()**：检测网络连接和 pip 镜像源可用性，提供国内镜像源切换方案。
+
+  ### B. 自动修复函数
+  1. **fix_ensurepip_fallback()**：下载 get-pip.py 并安装 pip 到 venv。
+  2. **fix_postgres_no_sudo()**：下载 postgresql-16 deb 包、解压、初始化 trust 模式数据库、启动于非标准端口（5433）、自动修改 config.py。
+  3. **fix_pip_numpy_opencv_conflict()**：强制降级 numpy 到 <2.0。
+
+  ### C. 集成到现有命令序列
+  1. **setup_venv()**：
+     - 创建 venv 后检测 ensurepip，失败时降级安装 pip。
+     - 安装依赖前检测 pip 存在性和网络连接。
+     - pip install 失败时诊断版本冲突，自动修复 numpy/opencv 问题后重试。
+  2. **start_infra()**：
+     - PostgreSQL 运行后诊断认证状态，失败时根据 sudo 权限选择修复 pg_hba.conf 或自建实例。
+     - Docker/本地服务启动失败时自动降级到自建实例。
+     - Redis 未运行时尝试 Docker、本地服务、手动启动三种方案。
+  3. **start_backend_bg()**：
+     - uvicorn 启动失败时诊断日志中的错误类型（模块导入、数据库连接、Redis 连接、端口占用）。
+     - 输出具体的问题说明和解决方案命令。
+
+  ### D. 错误类型与解决方案命令清单
+  | 错误类型 | 诊断函数 | 自动修复 | 手动方案 |
+  |---------|---------|---------|---------|
+  | ensurepip 缺失 | diagnose_ensurepip | fix_ensurepip_fallback | apt install python3-venv |
+  | venv pip 缺失 | diagnose_pip_in_venv | fix_ensurepip_fallback | get-pip.py / deb 解压 |
+  | numpy>=2 与 opencv 冲突 | diagnose_pip_version_conflict | fix_pip_numpy_opencv_conflict | pip install 'numpy<2.0' |
+  | pyzbar/libzbar 缺失 | diagnose_pip_version_conflict | 无 | apt install libzbar0 |
+  | psycopg2 编译失败 | diagnose_pip_version_conflict | 无 | apt install libpq-dev / psycopg2-binary |
+  | PostgreSQL 密码认证失败 | diagnose_postgres_auth | fix_postgres_no_sudo | pg_hba.conf / 自建实例 |
+  | Redis 未运行 | diagnose_redis | 自动启动 | service redis-server start |
+  | 网络镜像源不可达 | diagnose_network | 无 | 切换清华/阿里云源 |
+
+- **相关文件**：
+  - `启动.sh`（新增第6节诊断修复函数模块，修改 setup_venv/start_infra/start_backend_bg）
+- **验证结果**：
+  - bash -n 语法验证通过 ✓
+  - 自建 PostgreSQL 实例功能已验证（端口 5433） ✓
+- **后续动作**：无，所有诊断修复逻辑已集成到启动流程中。
+
+---
+
 ## 2026-06-26 修复：基站兼容 uav_ground_bridge 纯上报型架构（RFID + 设备身份验证）
 - **类型**：[修复] + [新增功能]
 - **影响范围**：warehouse-inspection-system（gateway、drones、drone_integration、device_verification）

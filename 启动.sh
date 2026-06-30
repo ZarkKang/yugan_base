@@ -99,6 +99,384 @@ menu_select() {
 }
 
 # ═══════════════════════════════════════════
+#  6. 环境依赖诊断与修复函数（新增）
+# ═══════════════════════════════════════════
+# 本节整合启动过程中常见环境依赖错误的诊断与自动修复机制
+# 错误类型: ensurepip缺失、pip缺失、版本冲突、PostgreSQL权限、Redis启动失败
+
+# ── 诊断: ensurepip 不可用 ──
+diagnose_ensurepip() {
+    local venv_dir="$1"
+    info "检测 ensurepip 可用性..."
+    if python3 -c "import ensurepip" 2>/dev/null; then
+        ok "ensurepip: 可用"
+        return 0
+    else
+        warn "ensurepip: 不可用 (常见原因: python3-venv 未安装或受限环境)"
+        echo ""
+        echo "  ${CYAN}解决方案:${NC}"
+        echo "  1) 有 sudo 权限时:"
+        echo "     sudo apt install python3-venv python3-pip"
+        echo ""
+        echo "  2) 无 sudo 权限时 (降级方案):"
+        echo "     mkdir -p /tmp/pip_bootstrap"
+        echo "     cd /tmp/pip_bootstrap"
+        echo "     curl -sS https://bootstrap.pypa.io/get-pip.py -o get-pip.py"
+        echo "     python3 get-pip.py --target /tmp/pip_bootstrap/pip_packages"
+        echo "     PYTHONPATH=/tmp/pip_bootstrap/pip_packages python3 -m pip install --target \$venv_dir/lib/python*/site-packages pip setuptools wheel"
+        echo ""
+        return 1
+    fi
+}
+
+# ── 诊断: venv 中 pip 缺失 ──
+diagnose_pip_in_venv() {
+    local venv_dir="$1"
+    local pip_bin="$venv_dir/bin/pip"
+    info "检测 venv 中的 pip..."
+    if [ -f "$pip_bin" ] && [ -x "$pip_bin" ]; then
+        ok "pip: 已安装于 $venv_dir"
+        "$pip_bin" --version 2>/dev/null || warn "pip 版本检测失败"
+        return 0
+    else
+        warn "pip: 缺失于 $venv_dir"
+        echo ""
+        echo "  ${CYAN}解决方案:${NC}"
+        echo "  1) 手动安装 pip 到 venv:"
+        echo "     curl -sS https://bootstrap.pypa.io/get-pip.py | $venv_dir/bin/python3"
+        echo ""
+        echo "  2) 从系统 deb 包解压 pip (无网络时):"
+        echo "     cd /tmp && apt-get download python3-pip"
+        echo "     dpkg-deb -x python3-pip*.deb /tmp/pip_extract"
+        echo "     cp -r /tmp/pip_extract/usr/lib/python*/dist-packages/pip \$venv_dir/lib/python*/site-packages/"
+        echo "     cp /tmp/pip_extract/usr/bin/pip3 \$venv_dir/bin/pip"
+        echo ""
+        return 1
+    fi
+}
+
+# ── 诊断: pip install 版本冲突 ──
+diagnose_pip_version_conflict() {
+    local log_content="$1"
+    info "检测 pip 依赖版本冲突..."
+    
+    # 检测 numpy >= 2 与 opencv 不兼容
+    if echo "$log_content" | grep -qiE "numpy.*2\.|opencv.*error|AttributeError.*numpy"; then
+        warn "检测到 numpy>=2 与 opencv 版本冲突"
+        echo ""
+        echo "  ${CYAN}问题说明:${NC} OpenCV 4.x 不兼容 numpy 2.x，需降级 numpy"
+        echo ""
+        echo "  ${CYAN}解决方案:${NC}"
+        echo "  pip install 'numpy<2.0' --force-reinstall"
+        echo ""
+        return 1
+    fi
+    
+    # 检测 pyzbar/libzbar 缺失
+    if echo "$log_content" | grep -qiE "pyzbar.*ImportError|libzbar.*not found"; then
+        warn "检测到 pyzbar 导入失败 (libzbar0 系统包缺失)"
+        echo ""
+        echo "  ${CYAN}解决方案:${NC}"
+        echo "  sudo apt install libzbar0"
+        echo ""
+        return 1
+    fi
+    
+    # 检测 psycopg2 编译失败
+    if echo "$log_content" | grep -qiE "psycopg2.*build|pg_config.*not found"; then
+        warn "检测到 psycopg2 编译失败 (postgresql-dev 缺失)"
+        echo ""
+        echo "  ${CYAN}解决方案:${NC}"
+        echo "  1) 安装系统依赖: sudo apt install libpq-dev postgresql-server-dev-all"
+        echo "  2) 使用预编译二进制: pip install psycopg2-binary"
+        echo ""
+        return 1
+    fi
+    
+    ok "无常见版本冲突"
+    return 0
+}
+
+# ── 诊断: PostgreSQL 权限/认证失败 ──
+diagnose_postgres_auth() {
+    local pg_port="${1:-5432}"
+    info "检测 PostgreSQL 认证状态..."
+    
+    # 检测 pg_isready
+    if ! command -v pg_isready &>/dev/null; then
+        warn "pg_isready: 未安装 (postgresql-client 缺失)"
+        echo ""
+        echo "  ${CYAN}解决方案:${NC}"
+        echo "  sudo apt install postgresql-client"
+        return 1
+    fi
+    
+    # 检测 PostgreSQL 运行状态
+    if ! pg_isready -h localhost -p "$pg_port" &>/dev/null; then
+        warn "PostgreSQL: 未运行于端口 $pg_port"
+        echo ""
+        echo "  ${CYAN}解决方案:${NC}"
+        echo "  1) 启动服务: sudo service postgresql start"
+        echo "  2) 或使用 Docker: docker compose up -d postgres"
+        return 1
+    fi
+    
+    # 检测密码认证 (尝试连接)
+    if ! PGPASSWORD=postgres psql -h localhost -p "$pg_port" -U postgres -c "SELECT 1" &>/dev/null; then
+        warn "PostgreSQL: 密码认证失败 (pg_hba.conf 配置或密码不匹配)"
+        echo ""
+        echo "  ${CYAN}常见原因:${NC}"
+        echo "  1) pg_hba.conf 要求 peer 认证 (仅 UNIX socket)"
+        echo "  2) postgres 用户密码未设置为 'postgres'"
+        echo "  3) 无 sudo 权限修改 pg_hba.conf"
+        echo ""
+        echo "  ${CYAN}解决方案:${NC}"
+        echo "  方案A - 有 sudo 权限:"
+        echo "    sudo -u postgres psql -c \"ALTER USER postgres WITH PASSWORD 'postgres';\""
+        echo "    sudo sed -i 's|ident|md5|' /etc/postgresql/*/main/pg_hba.conf"
+        echo "    sudo service postgresql restart"
+        echo ""
+        echo "  方案B - 无 sudo 权限 (自建 PostgreSQL 实例):"
+        echo "    # 下载 postgresql-16 deb 包"
+        echo "    cd /tmp && apt-get download postgresql-16 postgresql-client-16"
+        echo "    dpkg-deb -x postgresql-16*.deb /tmp/pginst"
+        echo "    dpkg-deb -x postgresql-client-16*.deb /tmp/pginst"
+        echo "    # 初始化 trust 模式数据库"
+        echo "    mkdir -p /tmp/pgdata"
+        echo "    /tmp/pginst/usr/lib/postgresql/16/bin/initdb -D /tmp/pgdata -U postgres --auth=trust"
+        echo "    # 启动于非标准端口"
+        echo "    /tmp/pginst/usr/lib/postgresql/16/bin/pg_ctl -D /tmp/pgdata -o '-p 5433 -k /tmp' start"
+        echo "    # 创建数据库"
+        echo "    psql -h localhost -p 5433 -U postgres -c 'CREATE DATABASE warehouse_inspection;'"
+        echo "    # 然后在项目 config.py 中将 POSTGRES_PORT 改为 5433"
+        echo ""
+        return 1
+    fi
+    
+    ok "PostgreSQL: 认证正常 (端口 $pg_port)"
+    return 0
+}
+
+# ── 诊断: Redis 启动失败 ──
+diagnose_redis() {
+    info "检测 Redis 状态..."
+    
+    if ! command -v redis-cli &>/dev/null; then
+        warn "redis-cli: 未安装"
+        echo ""
+        echo "  ${CYAN}解决方案:${NC}"
+        echo "  sudo apt install redis-server"
+        return 1
+    fi
+    
+    if ! redis-cli ping 2>/dev/null | grep -q PONG; then
+        warn "Redis: 未运行或无响应"
+        echo ""
+        echo "  ${CYAN}解决方案:${NC}"
+        echo "  1) 启动服务: sudo service redis-server start"
+        echo "  2) 或使用 Docker: docker compose up -d redis"
+        echo "  3) 或手动启动: redis-server --daemonize yes"
+        return 1
+    fi
+    
+    ok "Redis: 运行正常"
+    return 0
+}
+
+# ── 诊断: 网络连接/镜像源问题 ──
+diagnose_network() {
+    info "检测网络与 pip 镜像源..."
+    
+    # 测试默认镜像源
+    local test_url="${PIP_MIRROR:-https://pypi.org/simple}"
+    if curl -sS --connect-timeout 5 "$test_url" -o /dev/null 2>&1; then
+        ok "网络: 可访问 $test_url"
+        return 0
+    else
+        warn "网络: 无法访问 $test_url"
+        echo ""
+        echo "  ${CYAN}解决方案:${NC}"
+        echo "  1) 切换国内镜像源:"
+        echo "     export PIP_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple"
+        echo "     pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple"
+        echo ""
+        echo "  2) 或使用阿里云源:"
+        echo "     export PIP_MIRROR=https://mirrors.aliyun.com/pypi/simple/"
+        echo ""
+        return 1
+    fi
+}
+
+# ── 自动修复: ensurepip 缺失时降级安装 pip ──
+fix_ensurepip_fallback() {
+    local venv_dir="$1"
+    info "尝试降级方案: 手动安装 pip..."
+    
+    local bootstrap_dir="/tmp/pip_bootstrap_$(date +%s)"
+    mkdir -p "$bootstrap_dir"
+    
+    # 尝试下载 get-pip.py
+    if curl -sS https://bootstrap.pypa.io/get-pip.py -o "$bootstrap_dir/get-pip.py" 2>&1; then
+        ok "get-pip.py: 已下载"
+        
+        # 检查 venv 是否有 python
+        local venv_python="$venv_dir/bin/python3"
+        if [ ! -f "$venv_python" ]; then
+            venv_python="$venv_dir/bin/python"
+        fi
+        
+        if [ -f "$venv_python" ]; then
+            info "使用 venv 的 python 安装 pip..."
+            "$venv_python" "$bootstrap_dir/get-pip.py" --no-wheel --no-setuptools 2>&1 | tail -3
+            
+            if [ -f "$venv_dir/bin/pip" ] || [ -f "$venv_dir/bin/pip3" ]; then
+                ok "pip 已成功安装到 $venv_dir"
+                rm -rf "$bootstrap_dir"
+                return 0
+            else
+                warn "pip 安装可能失败，检查 venv/bin 目录"
+            fi
+        else
+            warn "venv 中无 python 解释器，尝试使用系统 python..."
+            python3 "$bootstrap_dir/get-pip.py" --target "$venv_dir/lib" 2>&1 | tail -3
+        fi
+    else
+        warn "无法下载 get-pip.py (网络问题)"
+        echo ""
+        echo "  ${CYAN}手动方案:${NC}"
+        echo "  在有网络的环境中下载 get-pip.py 后复制到本机:"
+        echo "  wget https://bootstrap.pypa.io/get-pip.py"
+        echo "  python3 get-pip.py"
+    fi
+    
+    rm -rf "$bootstrap_dir"
+    return 1
+}
+
+# ── 自动修复: PostgreSQL 无 sudo 时自建实例 ──
+fix_postgres_no_sudo() {
+    local alt_port="${1:-5433}"
+    info "尝试无 sudo 降级方案: 自建 PostgreSQL (端口 $alt_port)..."
+    
+    local pginst_dir="/tmp/pginst"
+    local pgdata_dir="/tmp/pgdata_$alt_port"
+    
+    # 清理旧实例
+    if [ -d "$pgdata_dir" ]; then
+        warn "发现旧实例数据，停止并清理..."
+        "$pginst_dir/usr/lib/postgresql/16/bin/pg_ctl" -D "$pgdata_dir" stop 2>/dev/null || true
+        rm -rf "$pgdata_dir"
+    fi
+    
+    # 下载并解压 postgresql-16 deb 包
+    if [ ! -d "$pginst_dir" ] || [ ! -f "$pginst_dir/usr/lib/postgresql/16/bin/initdb" ]; then
+        info "下载 PostgreSQL 16 deb 包..."
+        mkdir -p "$pginst_dir"
+        cd /tmp
+        apt-get download postgresql-16 postgresql-client-16 2>&1 | grep -E "已下载|获取" | tail -2
+        
+        for deb in postgresql-16*.deb postgresql-client-16*.deb; do
+            [ -f "$deb" ] && dpkg-deb -x "$deb" "$pginst_dir" 2>/dev/null && ok "已解压: $deb"
+        done
+        cd "$SCRIPT_DIR"
+    fi
+    
+    local initdb_bin="$pginst_dir/usr/lib/postgresql/16/bin/initdb"
+    local pg_ctl_bin="$pginst_dir/usr/lib/postgresql/16/bin/pg_ctl"
+    
+    if [ ! -f "$initdb_bin" ]; then
+        error "initdb 不存在，降级方案失败"
+        echo ""
+        echo "  ${CYAN}手动方案:${NC}"
+        echo "  请在有 sudo 权限的环境中配置 PostgreSQL，或联系管理员"
+        return 1
+    fi
+    
+    # 初始化数据库 (trust 模式)
+    info "初始化 PostgreSQL 数据目录 (trust 认证)..."
+    mkdir -p "$pgdata_dir"
+    "$initdb_bin" -D "$pgdata_dir" -U postgres --auth=trust 2>&1 | tail -5
+    
+    # 配置 pg_hba.conf 为 trust
+    cat > "$pgdata_dir/pg_hba.conf" <<'PGHBA'
+local   all             all                                     trust
+host    all             all             127.0.0.1/32            trust
+host    all             all             ::1/128                 trust
+PGHBA
+    
+    # 启动 PostgreSQL (使用非标准端口和 socket 目录)
+    info "启动 PostgreSQL 于端口 $alt_port..."
+    "$pg_ctl_bin" -D "$pgdata_dir" -o "-p $alt_port -k /tmp" -l "$pgdata_dir/pg.log" start 2>&1
+    sleep 3
+    
+    # 检测是否启动成功
+    if psql -h localhost -p "$alt_port" -U postgres -c "SELECT 1" &>/dev/null; then
+        ok "自建 PostgreSQL 已启动 (端口 $alt_port)"
+        
+        # 创建数据库
+        psql -h localhost -p "$alt_port" -U postgres -c "CREATE DATABASE warehouse_inspection;" 2>&1 | grep -E "CREATE|已存在" || warn "数据库创建可能已存在"
+        
+        # 提示用户修改配置
+        echo ""
+        echo -e "${YELLOW}════════════════════════════════════════${NC}"
+        echo -e "${YELLOW}  重要: 需修改项目配置以使用自建实例${NC}"
+        echo -e "${YELLOW}════════════════════════════════════════${NC}"
+        echo ""
+        echo "  请修改以下文件中的 POSTGRES_PORT:"
+        echo "    warehouse-inspection-system/backend/src/core/config.py"
+        echo "    将 POSTGRES_PORT: int = 5432 改为 POSTGRES_PORT: int = $alt_port"
+        echo ""
+        echo "  或设置环境变量:"
+        echo "    export PG_PORT=$alt_port"
+        echo ""
+        
+        # 自动修改 config.py (如果存在)
+        local config_file="$SCRIPT_DIR/warehouse-inspection-system/backend/src/core/config.py"
+        if [ -f "$config_file" ] && grep -q "POSTGRES_PORT.*5432" "$config_file"; then
+            info "尝试自动修改 config.py..."
+            sed -i "s|POSTGRES_PORT.*5432|POSTGRES_PORT: int = $alt_port|" "$config_file" 2>/dev/null && \
+                ok "已修改 config.py: POSTGRES_PORT = $alt_port" || \
+                warn "自动修改失败，请手动修改"
+        fi
+        
+        # 导出环境变量供后续服务使用
+        export PG_PORT="$alt_port"
+        
+        return 0
+    else
+        error "自建 PostgreSQL 启动失败"
+        [ -f "$pgdata_dir/pg.log" ] && tail -10 "$pgdata_dir/pg.log"
+        return 1
+    fi
+}
+
+# ── 自动修复: pip install 失败时的版本降级 ──
+fix_pip_numpy_opencv_conflict() {
+    local venv_dir="$1"
+    local pip_bin="$venv_dir/bin/pip"
+    
+    if [ ! -f "$pip_bin" ]; then
+        pip_bin="$venv_dir/bin/pip3"
+    fi
+    
+    if [ ! -f "$pip_bin" ]; then
+        error "venv 中无 pip，无法执行版本降级"
+        return 1
+    fi
+    
+    info "尝试修复 numpy/opencv 版本冲突..."
+    "$pip_bin" install 'numpy<2.0' --force-reinstall 2>&1 | tail -5
+    
+    if "$pip_bin" show numpy 2>/dev/null | grep -q "Version:"; then
+        ok "numpy 已降级到 <2.0"
+        return 0
+    else
+        warn "numpy 降级可能失败"
+        return 1
+    fi
+}
+
+# ═══════════════════════════════════════════
 #  4. 端口统一管理（核心改进）
 # ═══════════════════════════════════════════
 check_port() {
@@ -473,8 +851,28 @@ start_infra() {
     echo -e "${CYAN}    启动基础设施 (PostgreSQL + Redis)${NC}"
     echo -e "${CYAN}========================================${NC}"
 
+    # ── PostgreSQL 启动 ──
     if command -v pg_isready &>/dev/null && pg_isready -h localhost -p "$PG_PORT" &>/dev/null; then
         ok "本地 PostgreSQL 已运行"
+        # 诊断认证状态
+        diagnose_postgres_auth "$PG_PORT" || {
+            warn "PostgreSQL 认证失败，尝试降级方案..."
+            # 检测是否有 sudo 权限
+            if sudo -n true 2>/dev/null; then
+                info "有 sudo 权限，尝试修复认证..."
+                sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'postgres';" 2>/dev/null || warn "密码修改失败"
+                sudo sed -i 's|ident|md5|' /etc/postgresql/*/main/pg_hba.conf 2>/dev/null || warn "pg_hba.conf 修改失败"
+                sudo service postgresql restart 2>/dev/null
+                sleep 2
+                diagnose_postgres_auth "$PG_PORT" && ok "认证修复成功"
+            else
+                warn "无 sudo 权限，启用自建 PostgreSQL 实例..."
+                fix_postgres_no_sudo "5433" || {
+                    error "自建 PostgreSQL 失败，需手动配置"
+                    return 1
+                }
+            fi
+        }
     elif check_docker_port "$PG_PORT"; then
         ok "Docker PostgreSQL 已运行"
     else
@@ -486,19 +884,46 @@ start_infra() {
                 sleep 2
                 if pg_isready -h localhost -p "$PG_PORT" &>/dev/null; then
                     ok "本地 PostgreSQL 已启动"
+                    # 诊断认证
+                    diagnose_postgres_auth "$PG_PORT" || fix_postgres_no_sudo "5433"
                 else
-                    error "PostgreSQL 无法启动"
-                    return 1
+                    # 无 PostgreSQL 或无法启动，尝试自建
+                    warn "PostgreSQL 无法启动，尝试自建实例..."
+                    fix_postgres_no_sudo "5433" || {
+                        error "PostgreSQL 最终无法可用"
+                        return 1
+                    }
                 fi
             else
-                error "PostgreSQL 未安装"
-                return 1
+                warn "PostgreSQL 未安装，尝试自建实例..."
+                fix_postgres_no_sudo "5433" || {
+                    error "PostgreSQL 最终无法可用"
+                    return 1
+                }
             fi
         else
-            check_service_ready "PostgreSQL" "$PG_PORT" 15 || return 1
+            check_service_ready "PostgreSQL" "$PG_PORT" 15 || {
+                warn "Docker PostgreSQL 未就绪，尝试自建..."
+                fix_postgres_no_sudo "5433"
+            }
             check_service_ready "Redis" "$REDIS_PORT" 10 || warn "Redis 未就绪 (可选)"
         fi
     fi
+
+    # ── Redis 启动 ──
+    diagnose_redis || {
+        warn "Redis 未运行，尝试启动..."
+        # 尝试 Docker
+        docker compose up -d redis 2>&1 || {
+            # 尝试本地服务
+            sudo service redis-server start 2>/dev/null || {
+                # 尝试手动启动
+                redis-server --daemonize yes 2>/dev/null || warn "Redis 启动失败，部分功能可能受限"
+            }
+        }
+        sleep 2
+        diagnose_redis && ok "Redis 已修复" || warn "Redis 最终未启动 (可选)"
+    }
 }
 
 # ═══════════════════════════════════════════
@@ -525,11 +950,72 @@ setup_venv() {
         venv_dir="$abs_dir/venv"
     fi
 
-    [ ! -d "$venv_dir" ] && { info "创建虚拟环境 ($dir)..."; python3 -m venv "$venv_dir"; }
+    # ── 创建虚拟环境 ──
+    if [ ! -d "$venv_dir" ]; then
+        info "创建虚拟环境 ($dir)..."
+        python3 -m venv "$venv_dir" 2>&1
+        
+        # 检测 venv 创建是否成功，失败时诊断 ensurepip
+        if [ ! -d "$venv_dir" ] || [ ! -f "$venv_dir/bin/python3" ]; then
+            warn "venv 创建失败，诊断 ensurepip..."
+            diagnose_ensurepip "$venv_dir"
+            
+            # 尝试降级方案: 手动创建 venv 结构并安装 pip
+            info "尝试手动创建最小 venv 结构..."
+            mkdir -p "$venv_dir/bin" "$venv_dir/lib"
+            # 复制系统 python
+            cp "$(which python3)" "$venv_dir/bin/python3" 2>/dev/null || \
+                ln -sf "$(which python3)" "$venv_dir/bin/python3" 2>/dev/null
+            
+            # 尝试安装 pip
+            fix_ensurepip_fallback "$venv_dir" || warn "pip 安装失败，依赖安装可能失败"
+        fi
+    fi
 
+    # ── 检测 pip 是否存在 ──
+    diagnose_pip_in_venv "$venv_dir" || {
+        warn "pip 缺失，尝试修复..."
+        fix_ensurepip_fallback "$venv_dir"
+    }
+
+    # ── 安装依赖 ──
     if [ -f "$abs_dir/$req_file" ]; then
         info "安装依赖 ($dir/$req_file)..."
-        "$venv_dir/bin/pip" install $PIP_EXTRA -r "$abs_dir/$req_file" || return 1
+        
+        local pip_bin="$venv_dir/bin/pip"
+        [ ! -f "$pip_bin" ] && pip_bin="$venv_dir/bin/pip3"
+        
+        # 检测网络
+        diagnose_network
+        
+        # 执行 pip install，捕获错误日志
+        local install_log
+        install_log=$(mktemp)
+        "$pip_bin" install $PIP_EXTRA -r "$abs_dir/$req_file" 2>&1 | tee "$install_log"
+        local install_status=${PIPESTATUS[0]}
+        
+        if [ $install_status -ne 0 ]; then
+            warn "pip install 失败，诊断版本冲突..."
+            diagnose_pip_version_conflict "$(cat "$install_log")"
+            
+            # 尝试自动修复常见版本冲突
+            if grep -qiE "numpy.*2\.|opencv" "$install_log"; then
+                info "尝试自动修复 numpy/opencv 版本冲突..."
+                fix_pip_numpy_opencv_conflict "$venv_dir"
+                # 重新安装依赖
+                info "重新安装依赖..."
+                "$pip_bin" install $PIP_EXTRA -r "$abs_dir/$req_file" || {
+                    error "依赖安装最终失败，请查看上述诊断信息手动处理"
+                    rm -f "$install_log"
+                    return 1
+                }
+            else
+                rm -f "$install_log"
+                return 1
+            fi
+        fi
+        
+        rm -f "$install_log"
         ok "依赖安装完成"
     fi
     return 0
@@ -563,7 +1049,11 @@ start_backend_bg() {
         release_port "$port" "$name"
     fi
 
-    setup_venv "$dir" "$req_file" || return 1
+    # ── 设置虚拟环境（内部已集成版本冲突诊断）──
+    setup_venv "$dir" "$req_file" || {
+        error "${name} 虚拟环境设置失败"
+        return 1
+    }
 
     info "启动 ${name} (端口 $port)..."
     cd "$abs_dir" && nohup "$venv_dir/bin/uvicorn" "$module" --host 0.0.0.0 --port "$port" > "$log_file" 2>&1 &
@@ -580,6 +1070,53 @@ start_backend_bg() {
         error "=== 日志 (最后 20 行) ==="
         [ -f "$log_file" ] && tail -20 "$log_file"
         error "==========================="
+        
+        # ── 诊断启动失败原因 ──
+        echo ""
+        info "诊断启动失败原因..."
+        local log_content
+        log_content=$(cat "$log_file" 2>/dev/null)
+        
+        # 检测模块导入错误
+        if echo "$log_content" | grep -qiE "ModuleNotFoundError|ImportError|No module named"; then
+            warn "检测到模块导入错误"
+            echo ""
+            echo "  ${CYAN}问题说明:${NC} Python 包缺失或路径配置错误"
+            echo ""
+            echo "  ${CYAN}解决方案:${NC}"
+            echo "  1) 检查 venv 是否正确激活:"
+            echo "     source $venv_dir/bin/activate"
+            echo ""
+            echo "  2) 查看缺失的模块名 (从日志中确认)，手动安装:"
+            echo "     $venv_dir/bin/pip install <模块名>"
+            echo ""
+            echo "  3) 若是项目模块缺失，检查 PYTHONPATH:"
+            echo "     export PYTHONPATH=$abs_dir/src:\$PYTHONPATH"
+            echo ""
+        fi
+        
+        # 检测数据库连接错误
+        if echo "$log_content" | grep -qiE "PostgreSQL|connection refused|password authentication|FATAL.*postgres"; then
+            warn "检测到数据库连接错误"
+            diagnose_postgres_auth "$PG_PORT"
+        fi
+        
+        # 检测 Redis 连接错误
+        if echo "$log_content" | grep -qiE "Redis|ConnectionError|redis.*refused"; then
+            warn "检测到 Redis 连接错误"
+            diagnose_redis
+        fi
+        
+        # 检测端口占用
+        if echo "$log_content" | grep -qiE "Address already in use|port.*occupied"; then
+            warn "检测到端口占用错误"
+            echo ""
+            echo "  ${CYAN}解决方案:${NC}"
+            echo "  释放端口: $SCRIPT_DIR/启动.sh stop"
+            echo "  或手动: pkill -f 'uvicorn.*:$port'"
+            echo ""
+        fi
+        
         return 1
     fi
 }

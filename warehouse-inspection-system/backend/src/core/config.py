@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     # 数据库配置
     POSTGRES_HOST: str = "localhost"
-    POSTGRES_PORT: int = 5432
+    POSTGRES_PORT: int = 5433
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "postgres"
     POSTGRES_DB: str = "warehouse_inspection"
