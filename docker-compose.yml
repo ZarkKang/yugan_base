@@ -41,7 +41,7 @@ services:
   # 无人机数据系统后端
   drone-db:
     build:
-      context: ./drone-db-prototype/backend
+      context: ./drone/drone-db-prototype/backend
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
@@ -51,7 +51,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./drone-db-prototype/backend:/app
+      - ./drone/drone-db-prototype/backend:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     networks:
       - yugan-network
@@ -59,7 +59,7 @@ services:
   # 仓库巡检系统后端
   warehouse:
     build:
-      context: ./warehouse-inspection-system/backend
+      context: ./station/warehouse-inspection-system/backend
       dockerfile: Dockerfile
     ports:
       - "8001:8000"
@@ -72,8 +72,8 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./warehouse-inspection-system/backend:/app
-      - ./warehouse-inspection-system/storage:/app/storage
+      - ./station/warehouse-inspection-system/backend:/app
+      - ./station/warehouse-inspection-system/storage:/app/storage
     devices:
       # Linux 串口设备映射
       - "/dev/ttyUSB0:/dev/ttyUSB0"
@@ -89,7 +89,7 @@ services:
   # API网关
   api-gateway:
     build:
-      context: ./api-gateway
+      context: ./app/api-gateway
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
@@ -101,7 +101,7 @@ services:
       - drone-db
       - warehouse
     volumes:
-      - ./api-gateway:/app
+      - ./app/api-gateway:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8080 --reload
     networks:
       - yugan-network

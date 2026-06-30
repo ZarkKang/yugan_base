@@ -7,6 +7,19 @@
 - 日志统一使用 `logging.getLogger(__name__)`，禁止 `print()`。
 - 新增 API 必须返回 `APIResponse(success=..., message=..., data=...)` 格式。
 
+## 目录结构约定（2026-06-30 整理）
+- **日志目录**: `logs/` — 统一存放日志文件
+  - `logs/devlog.md` — 开发日志（重要变更时序记录）
+  - `logs/review/` — 复盘报告目录（现状-期望分析报告）
+  - `logs/runtime/` — 运行日志目录（服务运行时 *.log 文件，如 drone.log、warehouse.log）
+- **文档目录**: `doc/` — 统一存放技术文档（不再使用 docs/）
+  - `doc/drone/` — 无人机端文档（开发规范、payload 代码等）
+  - `doc/specs/` — 规范文档
+  - `doc/plans/` — 计划文档
+  - `doc/progress/` — 开发进度文档
+- **项目记忆**: `project_memory.md` — 根目录保留，存放核心约定和关键信息
+- **注意**: 不要再创建 docs/ 目录，所有文档统一放入 doc/
+
 ## 关键表结构速查
 
 ### RFIDTag（EPC → 商品映射）

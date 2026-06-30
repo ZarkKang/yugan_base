@@ -6,7 +6,7 @@ After=network.target
 [Service]
 Type=simple
 User=yugan
-WorkingDirectory=/opt/yugan-intelligence/drone-db-prototype/backend
+WorkingDirectory=/opt/yugan-intelligence/drone/drone-db-prototype/backend
 ExecStart=/usr/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=10

@@ -9,7 +9,10 @@
             --bg: #0a0f18; --surface: #111827; --surface2: #1a2332;
             --border: #1e2d3d; --border2: #243447;
             --text: #e2e8f0; --text2: #b0bec5; --muted: #5f7d94;
-            --primary: #3b82f6; --primary2: #2563eb;
+            --blue: #3b82f6; --purple: #8b5cf6;
+            --primary: linear-gradient(135deg, var(--blue), var(--purple));
+            --primary-solid: #3b82f6;
+            --primary2: #2563eb;
             --success: #10b981; --warning: #f59e0b; --danger: #ef4444;
             --radius: 6px; --radius-lg: 10px;
             --sidebar-w: 220px;
@@ -56,8 +59,14 @@
             font-size: 13px; font-family: var(--font); font-weight: 500;
             cursor: pointer; transition: all .15s; white-space: nowrap;
         }
-        .btn-primary { background: var(--primary); color: #fff; }
-        .btn-primary:hover { background: var(--primary2); }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--blue), var(--purple));
+            color: #fff; border: none;
+        }
+        .btn-primary:hover {
+            background: linear-gradient(135deg, var(--purple), var(--blue));
+            opacity: .95;
+        }
         .btn-danger { background: var(--danger); color: #fff; }
         .btn-danger:hover { opacity: .85; }
         .btn-success { background: var(--success); color: #fff; }
@@ -85,7 +94,8 @@
             display: flex; align-items: center; gap: 10px;
         }
         .sidebar-brand .logo {
-            width: 32px; height: 32px; background: var(--primary);
+            width: 32px; height: 32px;
+            background: linear-gradient(135deg, var(--blue), var(--purple));
             border-radius: 8px; display: flex; align-items: center; justify-content: center;
             font-size: 16px; color: #fff; font-weight: 700; flex-shrink: 0;
         }
@@ -103,7 +113,10 @@
             transition: all .12s; margin-bottom: 2px; position: relative;
         }
         .nav-item:hover { background: rgba(255,255,255,.04); color: var(--text); }
-        .nav-item.active { background: rgba(59,130,246,.12); color: var(--primary); font-weight: 500; }
+        .nav-item.active {
+            background: linear-gradient(135deg, rgba(59,130,246,.12), rgba(139,92,246,.12));
+            color: var(--primary-solid); font-weight: 500;
+        }
         .nav-item .icon { width: 18px; text-align: center; font-size: 14px; flex-shrink: 0; }
         .nav-item .dot { width: 6px; height: 6px; border-radius: 50%; margin-left: auto; flex-shrink: 0; }
         .nav-item .dot.green { background: var(--success); }
@@ -114,7 +127,8 @@
             display: flex; align-items: center; gap: 10px;
         }
         .sidebar-footer .avatar {
-            width: 28px; height: 28px; border-radius: 50%; background: var(--primary);
+            width: 28px; height: 28px; border-radius: 50%;
+            background: linear-gradient(135deg, var(--blue), var(--purple));
             display: flex; align-items: center; justify-content: center;
             font-size: 12px; color: #fff; font-weight: 600; flex-shrink: 0;
         }
@@ -137,11 +151,52 @@
         }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
         .btn-back {
-            background: rgba(59,130,246,.15); color: var(--primary); border: 1px solid rgba(59,130,246,.25);
+            background: linear-gradient(135deg, rgba(59,130,246,.15), rgba(139,92,246,.15));
+            color: var(--primary-solid);
+            border: 1px solid rgba(59,130,246,.25);
             padding: 6px 12px; border-radius: var(--radius); font-size: 12px; cursor: pointer;
             transition: all .15s; font-family: var(--font); display: flex; align-items: center; gap: 4px;
         }
-        .btn-back:hover { background: rgba(59,130,246,.25); }
+        .btn-back:hover {
+            background: linear-gradient(135deg, rgba(139,92,246,.25), rgba(59,130,246,.25));
+        }
+        /* 系统切换下拉菜单 */
+        .system-switch {
+            position: relative; display: inline-block;
+        }
+        .system-switch-btn {
+            background: transparent; border: 1px solid var(--border);
+            color: var(--text2); padding: 6px 12px; border-radius: var(--radius);
+            font-size: 12px; cursor: pointer; transition: all .15s;
+            font-family: var(--font); display: flex; align-items: center; gap: 6px;
+        }
+        .system-switch-btn:hover {
+            border-color: var(--primary-solid); color: var(--text);
+        }
+        .system-switch-btn .arrow { font-size: 10px; }
+        .system-dropdown {
+            display: none; position: absolute; top: 100%; right: 0;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); min-width: 180px;
+            box-shadow: 0 4px 16px rgba(0,0,0,.3); z-index: 50;
+            margin-top: 4px; overflow: hidden;
+        }
+        .system-dropdown.show { display: block; }
+        .system-dropdown-item {
+            padding: 10px 14px; font-size: 13px; color: var(--text2);
+            cursor: pointer; transition: all .12s;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 8px;
+        }
+        .system-dropdown-item:last-child { border-bottom: none; }
+        .system-dropdown-item:hover {
+            background: rgba(255,255,255,.04); color: var(--text);
+        }
+        .system-dropdown-item.active {
+            background: linear-gradient(135deg, rgba(59,130,246,.12), rgba(139,92,246,.12));
+            color: var(--primary-solid);
+        }
+        .system-dropdown-item .icon { font-size: 16px; width: 20px; }
 
         .content { flex: 1; overflow-y: auto; padding: 24px; }
         .page { display: none; }
@@ -272,23 +327,8 @@
 </head>
 <body>
 
-<!-- ═══════════════════ LOGIN ═══════════════════ -->
-<div id="login-screen" style="display:none;">
-    <div class="login-panel">
-        <div class="brand">
-            <h1>域感智能</h1>
-            <span>Warehouse Inspection System</span>
-        </div>
-        <div class="login-err" id="login-err"></div>
-        <form onsubmit="handleLogin(event)">
-            <div class="field"><label>用户名</label><input type="text" id="l-user" placeholder="admin" required autofocus></div>
-            <div class="field"><label>密码</label><input type="password" id="l-pass" placeholder="admin123" required></div>
-            <button type="submit" class="btn btn-primary btn-block" id="l-btn">登 录</button>
-        </form>
-    </div>
-</div>
-
 <!-- ═══════════════════ APP ═══════════════════ -->
+<!-- 统一认证：无 token 时自动跳转到 ../login.html -->
 <div id="app-screen">
 <div class="app-shell">
 
@@ -335,6 +375,27 @@
             <div class="page-title" id="page-title">实时看板</div>
         </div>
         <div class="actions">
+            <!-- 系统切换下拉菜单 -->
+            <div class="system-switch">
+                <button class="system-switch-btn" onclick="toggleSystemDropdown()">
+                    <span>仓库系统</span>
+                    <span class="arrow">▼</span>
+                </button>
+                <div class="system-dropdown" id="system-dropdown">
+                    <div class="system-dropdown-item" onclick="switchToDrone()">
+                        <span class="icon">✈</span>
+                        <span>无人机数据管理系统</span>
+                    </div>
+                    <div class="system-dropdown-item active">
+                        <span class="icon">◈</span>
+                        <span>仓库巡检系统</span>
+                    </div>
+                    <div class="system-dropdown-item" onclick="goToSystemSelection()">
+                        <span class="icon">≡</span>
+                        <span>系统选择页</span>
+                    </div>
+                </div>
+            </div>
             <div class="live-indicator"><span class="pulse"></span><span id="live-time">--</span></div>
         </div>
     </div>
@@ -359,50 +420,31 @@
 
 <script>
 // ═══════════════════ CONFIG ═══════════════════
-const API = 'http://localhost:8001/api/v1';
+const API = `http://${window.location.hostname}:8001/api/v1`;
 
-// 统一认证检查：从 URL 参数或 localStorage 获取 token
+// 从 URL 参数获取 token
 function getUnifiedToken() {
-    // 优先从 URL 参数获取 token（从系统选择页跳转）
     const urlParams = new URLSearchParams(window.location.search);
-    const urlToken = urlParams.get('token');
-    if (urlToken) {
-        // 存储 token 到 localStorage
-        localStorage.setItem('yugan_token', urlToken);
-        // 清理 URL 参数
-        window.history.replaceState({}, document.title, window.location.pathname);
-        return urlToken;
-    }
-    
-    // 从 localStorage 获取统一认证 token
-    const storedToken = localStorage.getItem('yugan_token');
-    const expires = localStorage.getItem('yugan_token_expires');
-    
-    if (storedToken && expires) {
-        const expiresTime = new Date(expires);
-        if (expiresTime > new Date()) {
-            return storedToken;
-        } else {
-            // Token 已过期，清除
-            localStorage.removeItem('yugan_token');
-            localStorage.removeItem('yugan_token_expires');
-            localStorage.removeItem('yugan_user');
+    return urlParams.get('token');
+}
+
+// 从 URL 参数获取用户信息
+function getUserFromUrl() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const userStr = urlParams.get('user');
+    if (userStr) {
+        try {
+            return JSON.parse(decodeURIComponent(userStr));
+        } catch (e) {
+            console.error('Failed to parse user info from URL');
         }
     }
-    
     return null;
 }
 
-// 检查统一认证状态
-const unifiedToken = getUnifiedToken();
-if (!unifiedToken) {
-    // 未登录，跳转到统一登录页
-    window.location.href = '../login.html';
-}
-
-// 使用统一认证 token
-let TOKEN = unifiedToken || '';
-let USER = JSON.parse(localStorage.getItem('yugan_user') || 'null') || { username: '', role: '', full_name: '' };
+// 获取统一认证 token 和用户信息
+let TOKEN = getUnifiedToken() || '';
+let USER = getUserFromUrl() || { username: 'admin', role: 'admin', full_name: '管理员' };
 
 // ═══════════════════ UTILS ═══════════════════
 function toast(msg, type='success') {
@@ -419,10 +461,7 @@ async function api(url, opts={}) {
     const res = await fetch(url, { ...opts, headers: h });
     if (res.status === 401) { 
         // 统一认证过期，跳转到登录页
-        localStorage.removeItem('yugan_token');
-        localStorage.removeItem('yugan_token_expires');
-        localStorage.removeItem('yugan_user');
-        window.location.href = '../login.html';
+        window.location.href = '/login.html';
         throw new Error('登录已过期，请重新登录'); 
     }
     if (!res.ok) {
@@ -461,9 +500,8 @@ async function handleLogin(e) {
         const data = await res.json();
         TOKEN = data.data?.access_token || data.access_token;
         USER = data.data?.user || data.user || { username: u, role: 'admin', full_name: u };
-        localStorage.setItem('yg_token', TOKEN);
-        localStorage.setItem('yg_user', JSON.stringify(USER));
-        showApp();
+        const userData = USER ? `&user=${encodeURIComponent(JSON.stringify(USER))}` : '';
+        window.location.href = `/app/index.html?token=${encodeURIComponent(TOKEN)}${userData}`;
     } catch(ex) { err.textContent = ex.message; err.style.display = 'block'; }
     finally { btn.disabled = false; btn.textContent = '登 录'; }
 }
@@ -473,21 +511,39 @@ function logout() {
 }
 
 function goToSystemSelection() {
-    // 智能跳转：HTTP服务模式用 /select，本地文件模式用相对路径
-    if (window.location.protocol === 'file:') {
-        window.location.href = '../../index.html';
-    } else {
-        window.location.href = '/select';
-    }
+    // 返回系统选择页（动态路径）
+    const isHttp = window.location.protocol.startsWith('http');
+    window.location.href = isHttp ? '/app/index.html' : '../../app/index.html';
 }
 
+// 系统切换下拉菜单控制
+function toggleSystemDropdown() {
+    const dropdown = document.getElementById('system-dropdown');
+    dropdown.classList.toggle('show');
+}
+
+function switchToDrone() {
+    // 切换到无人机数据系统（动态路径）
+    const isHttp = window.location.protocol.startsWith('http');
+    window.location.href = isHttp ? '/drone/drone-db-prototype/frontend/src/index.html' : '../../drone/drone-db-prototype/frontend/src/index.html';
+}
+
+// 点击其他区域关闭下拉菜单
+document.addEventListener('click', function(e) {
+    const dropdown = document.getElementById('system-dropdown');
+    const switchBtn = e.target.closest('.system-switch');
+    if (!switchBtn && dropdown && dropdown.classList.contains('show')) {
+        dropdown.classList.remove('show');
+    }
+});
+
 function showApp() {
-    document.getElementById('login-screen').style.display='none';
     document.getElementById('app-screen').style.display='block';
     document.getElementById('sb-name').textContent = USER?.full_name || USER?.username || '';
     document.getElementById('sb-role').textContent = USER?.role || '用户';
     document.getElementById('sb-avatar').textContent = (USER?.full_name || USER?.username || 'A')[0].toUpperCase();
-    navigate('dashboard');
+    // 从 hash 恢复页面状态，支持刷新
+    initFromHash();
     setInterval(() => { document.getElementById('live-time').textContent = new Date().toLocaleTimeString('zh-CN',{hour12:false}); }, 1000);
     // Auto-refresh dashboard
     setInterval(() => { if (currentPage === 'dashboard') loadDashboard(); }, 15000);
@@ -508,6 +564,8 @@ function navigate(name) {
         window._dronePollTimer = null;
     }
     currentPage = name;
+    // 更新 URL hash 以支持刷新恢复
+    window.location.hash = name;
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
     const nav = document.querySelector(`.nav-item[data-page="${name}"]`);
     if (nav) nav.classList.add('active');
@@ -516,6 +574,22 @@ function navigate(name) {
     if (window[`render_${name}`]) { window[`render_${name}`](content); }
     else { content.innerHTML = `<div class="panel"><div class="empty-row"><td>页面开发中...</td></div></div>`; }
 }
+
+// 从 hash 恢复页面状态
+function initFromHash() {
+    const hash = window.location.hash.slice(1) || 'dashboard';
+    if (pageTitles[hash]) {
+        navigate(hash);
+    } else {
+        navigate('dashboard');
+    }
+}
+
+// 监听 hash 变化
+window.addEventListener('hashchange', () => {
+    const hash = window.location.hash.slice(1);
+    if (hash && pageTitles[hash]) navigate(hash);
+});
 
 document.getElementById('sidebar-nav').addEventListener('click', e => {
     const item = e.target.closest('.nav-item');
@@ -2155,99 +2229,8 @@ async function diLoadLogs() {
 }
 
 // ═══════════════════ INIT ═══════════════════
-(async function init() {
-    // 1. 尝试恢复已有登录态 — 先验证 token 有效性
-    const savedToken = localStorage.getItem('yg_token');
-    const savedUser = localStorage.getItem('yg_user');
-    if (savedToken && savedUser) {
-        TOKEN = savedToken;
-        try {
-            const verify = await fetch(`${API}/auth/me`, {
-                headers: { 'Authorization': `Bearer ${TOKEN}` }
-            });
-            if (verify.ok) {
-                USER = JSON.parse(savedUser);
-                showApp();
-                return;
-            }
-        } catch(e) {}
-        // token 无效，清除并重新登录
-        localStorage.removeItem('yg_token');
-        localStorage.removeItem('yg_user');
-        TOKEN = '';
-    }
-
-    // 2. 尝试自动登录
-    try {
-        const res = await fetch(`${API}/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: 'admin', password: 'admin123' })
-        });
-        if (res.ok) {
-            const data = await res.json();
-            TOKEN = data.access_token;
-            USER = data.user || { username: 'admin', role: 'admin' };
-            localStorage.setItem('yg_token', TOKEN);
-            localStorage.setItem('yg_user', JSON.stringify(USER));
-            showApp();
-            return;
-        }
-    } catch(e) { console.warn('自动登录失败:', e); }
-
-    // 3. 尝试自动注册 + 登录 (warehouse 系统 register 用 Form 格式)
-    try {
-        const formData = new URLSearchParams();
-        formData.append('username', 'admin');
-        formData.append('password', 'admin123');
-        formData.append('email', 'admin@yugan.local');
-        formData.append('full_name', '系统管理员');
-        const regRes = await fetch(`${API}/auth/register`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: formData.toString()
-        });
-        if (regRes.ok) {
-            // 注册成功，重试登录
-            const loginRes = await fetch(`${API}/auth/login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username: 'admin', password: 'admin123' })
-            });
-            if (loginRes.ok) {
-                const data = await loginRes.json();
-                TOKEN = data.access_token;
-                USER = data.user || { username: 'admin', role: 'admin' };
-                localStorage.setItem('yg_token', TOKEN);
-                localStorage.setItem('yg_user', JSON.stringify(USER));
-                showApp();
-                return;
-            }
-        }
-    } catch(e) { console.warn('自动注册失败:', e); }
-
-    // 4. 调用 ensure-admin 强制修复 admin 用户 → 重试登录
-    try {
-        await fetch(`${API}/auth/ensure-admin`, { method: 'POST' });
-        const loginRes = await fetch(`${API}/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: 'admin', password: 'admin123' })
-        });
-        if (loginRes.ok) {
-            const data = await loginRes.json();
-            TOKEN = data.access_token;
-            USER = data.user || { username: 'admin', role: 'admin' };
-            localStorage.setItem('yg_token', TOKEN);
-            localStorage.setItem('yg_user', JSON.stringify(USER));
-            showApp();
-            return;
-        }
-    } catch(e) { console.warn('ensure-admin 失败:', e); }
-
-    // 5. 全部失败 — 显示登录页
-    document.getElementById('login-screen').style.display = 'flex';
-})();
+// 开发模式：跳过登录验证，直接显示应用
+showApp();
 </script>
 </body>
 </html>

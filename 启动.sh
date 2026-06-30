@@ -4,7 +4,7 @@
 #   用法:
 #     ./启动.sh             一键启动所有服务（默认）
 #     ./启动.sh menu        交互式引导菜单
-#     ./启动.sh start|stop|status|restart|logs|daemon|help
+#     ./启动.sh start|stop|status|restart|app/logs|daemon|help
 # ========================================
 
 set -o pipefail
@@ -38,6 +38,7 @@ MODE_FILE="$SCRIPT_DIR/.mode.conf"
 DRONE_PORT=${DRONE_PORT:-8000}
 WAREHOUSE_PORT=${WAREHOUSE_PORT:-8001}
 GATEWAY_PORT=${GATEWAY_PORT:-8080}
+HTTP_PORT=${HTTP_PORT:-3000}
 PG_PORT=${PG_PORT:-5432}
 REDIS_PORT=${REDIS_PORT:-6379}
 
@@ -287,9 +288,23 @@ diagnose_redis() {
 diagnose_network() {
     info "检测网络与 pip 镜像源..."
     
-    # 测试默认镜像源
+    # 测试默认镜像源（优先使用 wget，无 wget 时使用 curl）
     local test_url="${PIP_MIRROR:-https://pypi.org/simple}"
-    if curl -sS --connect-timeout 5 "$test_url" -o /dev/null 2>&1; then
+    local download_cmd=""
+    
+    if command -v wget &>/dev/null; then
+        download_cmd="wget -q --timeout=5 --spider $test_url"
+    elif command -v curl &>/dev/null; then
+        download_cmd="curl -sS --connect-timeout 5 $test_url -o /dev/null"
+    else
+        warn "wget/curl: 未安装，无法测试网络连接"
+        echo ""
+        echo "  ${CYAN}解决方案:${NC}"
+        echo "  sudo apt install wget curl"
+        return 1
+    fi
+    
+    if eval "$download_cmd" 2>&1; then
         ok "网络: 可访问 $test_url"
         return 0
     else
@@ -298,7 +313,6 @@ diagnose_network() {
         echo "  ${CYAN}解决方案:${NC}"
         echo "  1) 切换国内镜像源:"
         echo "     export PIP_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple"
-        echo "     pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple"
         echo ""
         echo "  2) 或使用阿里云源:"
         echo "     export PIP_MIRROR=https://mirrors.aliyun.com/pypi/simple/"
@@ -315,38 +329,50 @@ fix_ensurepip_fallback() {
     local bootstrap_dir="/tmp/pip_bootstrap_$(date +%s)"
     mkdir -p "$bootstrap_dir"
     
-    # 尝试下载 get-pip.py
-    if curl -sS https://bootstrap.pypa.io/get-pip.py -o "$bootstrap_dir/get-pip.py" 2>&1; then
+    # 检查 venv 是否有 python
+    local venv_python="$venv_dir/bin/python3"
+    if [ ! -f "$venv_python" ]; then
+        venv_python="$venv_dir/bin/python"
+    fi
+    
+    if [ ! -f "$venv_python" ]; then
+        warn "venv 中无 python 解释器"
+        return 1
+    fi
+    
+    # 尝试下载 get-pip.py（使用 wget 或 curl）
+    local get_pip_url="https://bootstrap.pypa.io/get-pip.py"
+    local downloaded=false
+    
+    if command -v wget &>/dev/null; then
+        info "使用 wget 下载 get-pip.py..."
+        wget -q "$get_pip_url" -O "$bootstrap_dir/get-pip.py" 2>&1 && downloaded=true
+    elif command -v curl &>/dev/null; then
+        info "使用 curl 下载 get-pip.py..."
+        curl -sS "$get_pip_url" -o "$bootstrap_dir/get-pip.py" 2>&1 && downloaded=true
+    else
+        warn "wget/curl: 未安装，无法下载 get-pip.py"
+        echo ""
+        echo "  ${CYAN}解决方案:${NC}"
+        echo "  sudo apt install wget curl"
+        return 1
+    fi
+    
+    if [ "$downloaded" = true ] && [ -f "$bootstrap_dir/get-pip.py" ]; then
         ok "get-pip.py: 已下载"
         
-        # 检查 venv 是否有 python
-        local venv_python="$venv_dir/bin/python3"
-        if [ ! -f "$venv_python" ]; then
-            venv_python="$venv_dir/bin/python"
-        fi
+        info "使用 venv 的 python 安装 pip..."
+        "$venv_python" "$bootstrap_dir/get-pip.py" --no-wheel --no-setuptools 2>&1 | tail -3
         
-        if [ -f "$venv_python" ]; then
-            info "使用 venv 的 python 安装 pip..."
-            "$venv_python" "$bootstrap_dir/get-pip.py" --no-wheel --no-setuptools 2>&1 | tail -3
-            
-            if [ -f "$venv_dir/bin/pip" ] || [ -f "$venv_dir/bin/pip3" ]; then
-                ok "pip 已成功安装到 $venv_dir"
-                rm -rf "$bootstrap_dir"
-                return 0
-            else
-                warn "pip 安装可能失败，检查 venv/bin 目录"
-            fi
+        if [ -f "$venv_dir/bin/pip" ] || [ -f "$venv_dir/bin/pip3" ]; then
+            ok "pip 已成功安装到 $venv_dir"
+            rm -rf "$bootstrap_dir"
+            return 0
         else
-            warn "venv 中无 python 解释器，尝试使用系统 python..."
-            python3 "$bootstrap_dir/get-pip.py" --target "$venv_dir/lib" 2>&1 | tail -3
+            warn "pip 安装可能失败，检查 venv/bin 目录"
         fi
     else
-        warn "无法下载 get-pip.py (网络问题)"
-        echo ""
-        echo "  ${CYAN}手动方案:${NC}"
-        echo "  在有网络的环境中下载 get-pip.py 后复制到本机:"
-        echo "  wget https://bootstrap.pypa.io/get-pip.py"
-        echo "  python3 get-pip.py"
+        warn "get-pip.py: 下载失败"
     fi
     
     rm -rf "$bootstrap_dir"
@@ -423,7 +449,7 @@ PGHBA
         echo -e "${YELLOW}════════════════════════════════════════${NC}"
         echo ""
         echo "  请修改以下文件中的 POSTGRES_PORT:"
-        echo "    warehouse-inspection-system/backend/src/core/config.py"
+        echo "    station/warehouse-inspection-system/backend/src/core/config.py"
         echo "    将 POSTGRES_PORT: int = 5432 改为 POSTGRES_PORT: int = $alt_port"
         echo ""
         echo "  或设置环境变量:"
@@ -431,7 +457,7 @@ PGHBA
         echo ""
         
         # 自动修改 config.py (如果存在)
-        local config_file="$SCRIPT_DIR/warehouse-inspection-system/backend/src/core/config.py"
+        local config_file="$SCRIPT_DIR/station/warehouse-inspection-system/backend/src/core/config.py"
         if [ -f "$config_file" ] && grep -q "POSTGRES_PORT.*5432" "$config_file"; then
             info "尝试自动修改 config.py..."
             sed -i "s|POSTGRES_PORT.*5432|POSTGRES_PORT: int = $alt_port|" "$config_file" 2>/dev/null && \
@@ -828,7 +854,7 @@ detect_rfid_device() {
     if [ -n "$detected" ]; then
         ok "自动选择 RFID 设备: $detected"
         export RFID_DEVICE="$detected"
-        local env_file="$SCRIPT_DIR/warehouse-inspection-system/.env"
+        local env_file="$SCRIPT_DIR/station/warehouse-inspection-system/.env"
         if [ -f "$env_file" ]; then
             if grep -q "^RFID_DEVICE=" "$env_file"; then
                 sed -i "s|^RFID_DEVICE=.*|RFID_DEVICE=$detected|" "$env_file"
@@ -1026,7 +1052,7 @@ setup_venv() {
 # ═══════════════════════════════════════════
 start_backend_bg() {
     local name="$1" dir="$2" module="$3" port="$4" req_file="${5:-requirements.txt}"
-    local log_file="$SCRIPT_DIR/logs/${name}.log"
+    local log_file="$SCRIPT_DIR/app/logs/${name}.log"
     local abs_dir="$(abs_path "$dir")"
     local venv_dir
 
@@ -1036,7 +1062,7 @@ start_backend_bg() {
         venv_dir="$abs_dir/venv"
     fi
 
-    mkdir -p "$SCRIPT_DIR/logs"
+    mkdir -p "$SCRIPT_DIR/app/logs"
 
     # 检查 Docker 是否占用
     if check_docker_port "$port"; then
@@ -1059,7 +1085,7 @@ start_backend_bg() {
     cd "$abs_dir" && nohup "$venv_dir/bin/uvicorn" "$module" --host 0.0.0.0 --port "$port" > "$log_file" 2>&1 &
     cd "$SCRIPT_DIR"
     local pid=$!
-    echo "$pid" > "$SCRIPT_DIR/logs/${name}.pid"
+    echo "$pid" > "$SCRIPT_DIR/app/logs/${name}.pid"
     debug "PID: $pid"
 
     sleep 4
@@ -1123,7 +1149,7 @@ start_backend_bg() {
 
 stop_service_by_port() {
     local name="$1" port="$2"
-    local pid_file="$SCRIPT_DIR/logs/${name}.pid"
+    local pid_file="$SCRIPT_DIR/app/logs/${name}.pid"
     if [ -f "$pid_file" ]; then
         local pid
         pid=$(cat "$pid_file" 2>/dev/null)
@@ -1143,9 +1169,54 @@ stop_all() {
     release_port "$GATEWAY_PORT" "API网关" >/dev/null 2>&1
     pkill -f "uvicorn" 2>/dev/null || true
     pkill -f "electron" 2>/dev/null || true
+    pkill -f "http.server" 2>/dev/null || true
     sleep 0.5
-    rm -f "$SCRIPT_DIR/logs/"*.pid 2>/dev/null
+    rm -f "$SCRIPT_DIR/app/logs/"*.pid 2>/dev/null
     ok "所有服务已停止"
+}
+
+# ═══════════════════════════════════════════
+#  前端 HTTP 服务器
+# ═══════════════════════════════════════════
+start_http_server() {
+    local port="${HTTP_PORT:-3000}"
+
+    # 检查端口是否被占用
+    if check_port "$port"; then
+        warn "端口 $port 已被占用，尝试释放..."
+        release_port "$port" "前端HTTP服务器" || { warn "无法释放端口 $port"; return 1; }
+    fi
+
+    info "启动前端 HTTP 服务器 (端口 $port)..."
+    cd "$SCRIPT_DIR" && nohup python3 -m http.server "$port" --bind 0.0.0.0 > "$SCRIPT_DIR/app/logs/前端HTTP服务器.log" 2>&1 &
+    cd "$SCRIPT_DIR"
+    local pid=$!
+    echo "$pid" > "$SCRIPT_DIR/app/logs/前端HTTP服务器.pid"
+    sleep 2
+
+    if check_port "$port"; then
+        ok "前端 HTTP 服务器启动成功 (PID: $pid, 端口: $port)"
+        # 获取本机 IP
+        local ip=$(hostname -I | awk '{print $1}')
+        echo ""
+        echo -e "${BOLD}${GREEN}════════════════════════════════════════${NC}"
+        echo -e "${BOLD}${GREEN}  前端访问地址${NC}"
+        echo -e "${BOLD}${GREEN}════════════════════════════════════════${NC}"
+        echo ""
+        echo -e "  ${CYAN}本机访问:${NC}"
+        echo -e "    http://localhost:$port/app/index.html"
+        echo ""
+        echo -e "  ${CYAN}局域网访问 (其他电脑):${NC}"
+        echo -e "    http://$ip:$port/app/index.html"
+        echo ""
+        echo -e "  ${CYAN}直接进入子系统:${NC}"
+        echo -e "    http://localhost:$port/station/warehouse-inspection-system/frontend/index.html"
+        echo -e "    http://localhost:$port/drone/drone-db-prototype/frontend/src/index.html"
+        echo ""
+    else
+        error "前端 HTTP 服务器启动失败"
+        return 1
+    fi
 }
 
 check_all_status() {
@@ -1156,6 +1227,7 @@ check_all_status() {
 
     local all_ok=true
 
+    # ── 基础设施 ──
     if command -v pg_isready &>/dev/null && pg_isready -h localhost -p "$PG_PORT" &>/dev/null; then
         echo -e "  PostgreSQL      ${GREEN}[运行中]${NC}  端口 $PG_PORT"
     elif check_docker_port "$PG_PORT"; then
@@ -1173,26 +1245,76 @@ check_all_status() {
         echo -e "  Redis           ${YELLOW}[未运行]${NC}  (可选)"
     fi
 
+    # ── 后端服务 ──
+    local drone_ok=false warehouse_ok=false
     for svc in "无人机数据系统:${DRONE_PORT}" "仓库巡检系统:${WAREHOUSE_PORT}" "API网关:${GATEWAY_PORT}"; do
         local name="${svc%%:*}" port="${svc##*:}"
         if check_port "$port"; then
             echo -e "  ${name}    ${GREEN}[运行中]${NC}  端口 $port"
+            [[ "$name" == "无人机数据系统" ]] && drone_ok=true
+            [[ "$name" == "仓库巡检系统" ]] && warehouse_ok=true
         elif check_docker_port "$port"; then
             echo -e "  ${name}    ${GREEN}[Docker]${NC}   端口 $port"
+            [[ "$name" == "无人机数据系统" ]] && drone_ok=true
+            [[ "$name" == "仓库巡检系统" ]] && warehouse_ok=true
         else
             echo -e "  ${name}    ${RED}[已停止]${NC}"
             all_ok=false
         fi
     done
 
+    # ── 硬件模块 ──
     if ping -c 1 -W 1 192.168.1.200 &>/dev/null; then
         echo -e "  图传模块(200)   ${GREEN}[在线]${NC}"
     else
         echo -e "  图传模块(200)   ${RED}[离线]${NC}"
     fi
 
+    # ── 前端 HTTP 服务器 ──
+    echo ""
+    echo -e "${CYAN}── 前端服务 ──${NC}"
+    if check_port "$HTTP_PORT"; then
+        echo -e "  HTTP服务器      ${GREEN}[运行中]${NC}  端口 $HTTP_PORT"
+    else
+        echo -e "  HTTP服务器      ${RED}[已停止]${NC}"
+    fi
+    
+    local index_page="$SCRIPT_DIR/app/index.html"
+    local warehouse_frontend="$SCRIPT_DIR/station/warehouse-inspection-system/frontend/index.html"
+    local drone_frontend="$SCRIPT_DIR/drone/drone-db-prototype/frontend/src/index.html"
+    
+    [ -f "$index_page" ] && echo -e "  系统选择页      ${GREEN}[可用]${NC}" || echo -e "  系统选择页      ${RED}[缺失]${NC}"
+    [ -f "$warehouse_frontend" ] && echo -e "  仓库系统前端    ${GREEN}[可用]${NC}" || echo -e "  仓库系统前端    ${RED}[缺失]${NC}"
+    [ -f "$drone_frontend" ] && echo -e "  无人机系统前端  ${GREEN}[可用]${NC}" || echo -e "  无人机系统前端  ${RED}[缺失]${NC}"
+
     echo ""
     $all_ok && ok "所有核心服务运行正常" || warn "部分服务未运行"
+    
+    # ── 访问指引 ──
+    if $drone_ok || $warehouse_ok; then
+        local ip=$(hostname -I | awk '{print $1}')
+        echo ""
+        echo -e "${BOLD}${GREEN}════════════════════════════════════════${NC}"
+        echo -e "${BOLD}${GREEN}  系统访问方式${NC}"
+        echo -e "${BOLD}${GREEN}════════════════════════════════════════${NC}"
+        echo ""
+        if check_port "$HTTP_PORT"; then
+            echo -e "  ${CYAN}本机浏览器:${NC}"
+            echo -e "    http://localhost:$HTTP_PORT/app/index.html"
+            echo ""
+            echo -e "  ${CYAN}局域网访问 (其他电脑):${NC}"
+            echo -e "    http://$ip:$HTTP_PORT/app/index.html"
+            echo ""
+        else
+            echo -e "  ${CYAN}本地文件:${NC}"
+            echo -e "    file://$SCRIPT_DIR/app/index.html"
+            echo ""
+            echo -e "  ${YELLOW}提示: 启动 HTTP 服务器后可通过浏览器访问${NC}"
+            echo -e "    运行: python3 -m http.server $HTTP_PORT --bind 0.0.0.0"
+            echo ""
+        fi
+    fi
+    
     return 0
 }
 
@@ -1201,7 +1323,7 @@ check_all_status() {
 # ═══════════════════════════════════════════
 auto_restart_monitor() {
     local name="$1" port="$2" module="$3" dir="$4" req_file="${5:-requirements.txt}"
-    local pid_file="$SCRIPT_DIR/logs/${name}.pid"
+    local pid_file="$SCRIPT_DIR/app/logs/${name}.pid"
 
     if [ -f "$pid_file" ]; then
         local pid
@@ -1227,11 +1349,11 @@ start_daemon() {
     while true; do
         sleep 15
         count=$((count + 1))
-        auto_restart_monitor "仓库巡检系统" "$WAREHOUSE_PORT" "src.main:app" "warehouse-inspection-system/backend"
-        auto_restart_monitor "无人机数据系统" "$DRONE_PORT" "app.main:app" "drone-db-prototype/backend"
-        auto_restart_monitor "API网关" "$GATEWAY_PORT" "main:app" "api-gateway"
+        auto_restart_monitor "仓库巡检系统" "$WAREHOUSE_PORT" "src.main:app" "station/warehouse-inspection-system/backend"
+        auto_restart_monitor "无人机数据系统" "$DRONE_PORT" "app.main:app" "drone/drone-db-prototype/backend"
+        auto_restart_monitor "API网关" "$GATEWAY_PORT" "main:app" "app/api-gateway"
         if [ $((count % 20)) -eq 0 ]; then
-            rotate_logs
+            rotate_app/logs
         fi
     done
 }
@@ -1239,8 +1361,8 @@ start_daemon() {
 # ═══════════════════════════════════════════
 #  12. 日志管理
 # ═══════════════════════════════════════════
-rotate_logs() {
-    local log_dir="$SCRIPT_DIR/logs"
+rotate_app/logs() {
+    local log_dir="$SCRIPT_DIR/app/logs"
     [ ! -d "$log_dir" ] && return 0
 
     for log_file in "$log_dir"/*.log; do
@@ -1263,16 +1385,16 @@ rotate_logs() {
     done
 }
 
-view_logs() {
+view_app/logs() {
     echo -e "${BOLD}查看日志${NC}"
     echo ""
     echo "输入要查看的行数 (默认50):"
     read -r lines
     lines="${lines:-50}"
-    if [ -d "$SCRIPT_DIR/logs" ]; then
-        tail -"$lines" "$SCRIPT_DIR/logs/"*.log 2>/dev/null || warn "无日志文件"
+    if [ -d "$SCRIPT_DIR/app/logs" ]; then
+        tail -"$lines" "$SCRIPT_DIR/app/logs/"*.log 2>/dev/null || warn "无日志文件"
     else
-        warn "logs 目录不存在"
+        warn "app/logs 目录不存在"
     fi
 }
 
@@ -1310,30 +1432,26 @@ start_all() {
 
     echo ""
     echo -e "${CYAN}--- 仓库巡检系统 (先启动以创建数据库表结构) ---${NC}"
-    start_backend_bg "仓库巡检系统" "warehouse-inspection-system/backend" "src.main:app" "$WAREHOUSE_PORT" || failed=$((failed + 1))
+    start_backend_bg "仓库巡检系统" "station/warehouse-inspection-system/backend" "src.main:app" "$WAREHOUSE_PORT" || failed=$((failed + 1))
 
     echo ""
     echo -e "${CYAN}--- 无人机数据系统 (共用 PostgreSQL 数据库) ---${NC}"
-    start_backend_bg "无人机数据系统" "drone-db-prototype/backend" "app.main:app" "$DRONE_PORT" || failed=$((failed + 1))
+    start_backend_bg "无人机数据系统" "drone/drone-db-prototype/backend" "app.main:app" "$DRONE_PORT" || failed=$((failed + 1))
 
     echo ""
     echo -e "${CYAN}--- API 网关 ---${NC}"
-    start_backend_bg "API网关" "api-gateway" "main:app" "$GATEWAY_PORT" || failed=$((failed + 1))
+    start_backend_bg "API网关" "app/api-gateway" "main:app" "$GATEWAY_PORT" || failed=$((failed + 1))
 
-    # ── 阶段 4: 状态汇总 ──
-    phase "4/4" "状态汇总"
+    # ── 阶段 4: 启动前端 HTTP 服务器 ──
+    phase "4/5" "启动前端 HTTP 服务器"
+    start_http_server || warn "前端 HTTP 服务器启动失败（可手动启动）"
+
+    # ── 阶段 5: 状态汇总 ──
+    phase "5/5" "状态汇总"
     check_all_status
 
-    echo ""
-    echo -e "${GREEN}访问地址:${NC}"
-    echo -e "  无人机数据:  ${CYAN}http://localhost:$DRONE_PORT${NC}"
-    echo -e "  仓库巡检:    ${CYAN}http://localhost:$WAREHOUSE_PORT${NC}"
-    echo -e "  API 网关:    ${CYAN}http://localhost:$GATEWAY_PORT${NC}"
-    echo -e "  前端页面:    ${CYAN}file://$SCRIPT_DIR/warehouse-inspection-system/frontend/index.html${NC}"
-    echo ""
-
     if [ $failed -gt 0 ]; then
-        warn "$failed 个服务启动失败，请查看日志: $SCRIPT_DIR/logs/"
+        warn "$failed 个服务启动失败，请查看日志: $SCRIPT_DIR/app/logs/"
         return 1
     fi
     ok "一键启动完成"
@@ -1366,7 +1484,7 @@ quick_deploy() {
 run_drone_simulator() {
     echo -e "${BOLD}运行无人机模拟器${NC}"
     echo ""
-    local sim_dir="$SCRIPT_DIR/warehouse-inspection-system/tools"
+    local sim_dir="$SCRIPT_DIR/station/warehouse-inspection-system/tools"
     if [ -f "$sim_dir/simulate_drone.py" ]; then
         info "启动模拟器..."
         cd "$sim_dir" && python3 simulate_drone.py
@@ -1396,7 +1514,7 @@ test_rfid() {
     info "尝试连接 RFID 读卡器..."
     python3 -c "
 import sys
-sys.path.insert(0, '$SCRIPT_DIR/warehouse-inspection-system/backend/src')
+sys.path.insert(0, '$SCRIPT_DIR/station/warehouse-inspection-system/backend/src')
 try:
     from hardware.rfid_reader import RFIDReader, get_rfid_reader
     from hardware.serial import list_available_ports
@@ -1430,7 +1548,7 @@ except Exception as e:
 test_qr() {
     echo -e "${BOLD}测试 QR 码识别${NC}"
     echo ""
-    if [ -f "$SCRIPT_DIR/warehouse-inspection-system/backend/src/image/qr_worker.py" ]; then
+    if [ -f "$SCRIPT_DIR/station/warehouse-inspection-system/backend/src/image/qr_worker.py" ]; then
         info "QR 模块存在，检查依赖..."
         python3 -c "
 try:
@@ -1607,10 +1725,10 @@ clean_venvs() {
     ok "虚拟环境清理完成"
 }
 
-clean_logs() {
+clean_app/logs() {
     echo -e "${BOLD}清理日志文件${NC}"
     echo ""
-    local log_dir="$SCRIPT_DIR/logs"
+    local log_dir="$SCRIPT_DIR/app/logs"
     if [ -d "$log_dir" ]; then
         local count
         count=$(find "$log_dir" -name "*.log" | wc -l)
@@ -1622,7 +1740,7 @@ clean_logs() {
             warn "已取消"
         fi
     else
-        warn "logs 目录不存在"
+        warn "app/logs 目录不存在"
     fi
 }
 
@@ -1812,11 +1930,11 @@ start_single_service() {
     [ $? -ne 0 ] && return
     case "$opt" in
         "无人机数据系统($DRONE_PORT)")
-            start_backend_bg "无人机数据系统" "drone-db-prototype/backend" "app.main:app" "$DRONE_PORT" ;;
+            start_backend_bg "无人机数据系统" "drone/drone-db-prototype/backend" "app.main:app" "$DRONE_PORT" ;;
         "仓库巡检系统($WAREHOUSE_PORT)")
-            start_backend_bg "仓库巡检系统" "warehouse-inspection-system/backend" "src.main:app" "$WAREHOUSE_PORT" ;;
+            start_backend_bg "仓库巡检系统" "station/warehouse-inspection-system/backend" "src.main:app" "$WAREHOUSE_PORT" ;;
         "API网关($GATEWAY_PORT)")
-            start_backend_bg "API网关" "api-gateway" "main:app" "$GATEWAY_PORT" ;;
+            start_backend_bg "API网关" "app/api-gateway" "main:app" "$GATEWAY_PORT" ;;
         "返回") ;;
     esac
 }
@@ -1896,7 +2014,7 @@ service_menu() {
             "停止所有服务")   stop_all; press_enter ;;
             "重启所有服务")   stop_all; sleep 2; start_all; press_enter ;;
             "查看服务状态")   check_all_status; press_enter ;;
-            "查看日志")       view_logs; press_enter ;;
+            "查看日志")       view_app/logs; press_enter ;;
             "启动单个服务")   start_single_service; press_enter ;;
             "停止单个服务")   stop_single_service; press_enter ;;
             "切换运行模式")   select_mode; press_enter ;;
@@ -1944,7 +2062,7 @@ maintenance_menu() {
         [ $? -ne 0 ] && continue
         case "$opt" in
             "清理虚拟环境")   clean_venvs; press_enter ;;
-            "清理日志文件")   clean_logs; press_enter ;;
+            "清理日志文件")   clean_app/logs; press_enter ;;
             "重置数据库")     reset_database; press_enter ;;
             "更新系统代码")   update_code; press_enter ;;
             "检查端口占用")   check_ports; press_enter ;;
@@ -2056,9 +2174,9 @@ show_help() {
     echo "  status      查看服务状态"
     echo "  stop        停止所有服务"
     echo "  restart     重启所有服务"
-    echo "  logs [n]    查看日志（最近 n 行，默认 50）"
+    echo "  app/logs [n]    查看日志（最近 n 行，默认 50）"
     echo "  daemon      启动守护进程（自动重启 + 日志轮转）"
-    echo "  rotate-logs 手动触发日志轮转"
+    echo "  rotate-app/logs 手动触发日志轮转"
     echo "  help        显示帮助"
     echo ""
     echo "环境变量:"
@@ -2095,18 +2213,18 @@ case "${1:-}" in
         sleep 2
         start_all
         ;;
-    logs)
-        if [ -d "$SCRIPT_DIR/logs" ]; then
-            tail -"${2:-50}" "$SCRIPT_DIR/logs/"*.log 2>/dev/null || warn "无日志"
+    app/logs)
+        if [ -d "$SCRIPT_DIR/app/logs" ]; then
+            tail -"${2:-50}" "$SCRIPT_DIR/app/logs/"*.log 2>/dev/null || warn "无日志"
         else
-            warn "logs 目录不存在"
+            warn "app/logs 目录不存在"
         fi
         ;;
     daemon)
         start_daemon
         ;;
-    rotate-logs)
-        rotate_logs
+    rotate-app/logs)
+        rotate_app/logs
         ;;
     help|--help|-h)
         show_help

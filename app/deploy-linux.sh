@@ -80,34 +80,34 @@ if [ "$clone_choice" = "y" ]; then
         cd /opt/yugan-intelligence
     fi
 else
-    cd "$(dirname "$0")"
+    cd "$(dirname "$0")/.."
 fi
 
 # 创建数据目录
 echo ""
 echo "正在创建数据目录..."
-mkdir -p drone-db-prototype/backend/uploads
-mkdir -p drone-db-prototype/backend/backups
-mkdir -p drone-db-prototype/backend/traces
+mkdir -p drone/drone-db-prototype/backend/uploads
+mkdir -p drone/drone-db-prototype/backend/backups
+mkdir -p drone/drone-db-prototype/backend/traces
 
 # 安装 Python 依赖
 echo ""
 echo "正在安装 Python 依赖..."
-cd drone-db-prototype/backend && pip install -r requirements.txt
-cd ../../warehouse-inspection-system/backend && pip install -r requirements.txt
-cd ../../api-gateway && pip install -r requirements.txt
+cd drone/drone-db-prototype/backend && pip install -r requirements.txt
+cd ../../station/warehouse-inspection-system/backend && pip install -r requirements.txt
+cd ../../app/api-gateway && pip install -r requirements.txt
 
 # 安装 Node.js 依赖
 echo ""
 echo "正在安装 Node.js 依赖..."
-cd ../desktop-app && npm install
+cd ../app/desktop-app && npm install
 
 # 配置 systemd 服务（可选）
 echo ""
 read -p "是否配置 systemd 服务？(需要 root 权限) (y/n): " service_choice
 if [ "$service_choice" = "y" ]; then
     cd ..
-    sudo cp systemd/*.service /etc/systemd/system/
+    sudo cp app/systemd/*.service /etc/systemd/system/
     sudo systemctl daemon-reload
     echo "systemd 服务已安装！"
     echo "使用以下命令管理服务："

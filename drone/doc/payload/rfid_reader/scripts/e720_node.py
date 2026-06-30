@@ -62,12 +62,16 @@ class E720Node:
         self.lock = threading.Lock()
         self.running = True
 
-        self.ser = serial.Serial(self.port, self.baud, timeout=self.read_timeout)
-        rospy.logwarn("[e720_rfid] opened %s @ %d", self.port, self.baud)
+        try:
+            self.ser = serial.Serial(self.port, self.baud, timeout=self.read_timeout)
+            rospy.logwarn("[e720_rfid] opened %s @ %d", self.port, self.baud)
 
-        self.set_power(self.power_dbm)
-        if self.auto_start:
-            self.start_inventory(self.inventory_count)
+            self.set_power(self.power_dbm)
+            if self.auto_start:
+                self.start_inventory(self.inventory_count)
+        except serial.SerialException as exc:
+            rospy.logerr("[e720_rfid] failed to open %s: %s", self.port, exc)
+            raise
 
     def send(self, frame: bytes):
         with self.lock:

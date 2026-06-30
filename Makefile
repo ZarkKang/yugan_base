@@ -21,30 +21,30 @@ help:
 # 安装所有依赖
 install:
 	@echo "正在安装 Python 依赖..."
-	cd drone-db-prototype/backend && pip install -r requirements.txt
-	cd warehouse-inspection-system/backend && pip install -r requirements.txt
-	cd api-gateway && pip install -r requirements.txt
+	cd drone/drone-db-prototype/backend && pip install -r requirements.txt
+	cd station/warehouse-inspection-system/backend && pip install -r requirements.txt
+	cd app/api-gateway && pip install -r requirements.txt
 	@echo "正在安装 Node.js 依赖..."
-	cd desktop-app && npm install
+	cd app/desktop-app && npm install
 	@echo "依赖安装完成！"
 
 # 启动无人机数据系统
 drone:
-	cd drone-db-prototype/backend && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+	cd drone/drone-db-prototype/backend && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 # 启动仓库巡检系统
 warehouse:
-	cd warehouse-inspection-system/backend && \
+	cd station/warehouse-inspection-system/backend && \
 	if [ -d "venv" ]; then source venv/bin/activate; fi && \
 	uvicorn src.main:app --host 0.0.0.0 --port 8001 --reload
 
 # 启动 API 网关
 gateway:
-	cd api-gateway && uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+	cd app/api-gateway && uvicorn main:app --host 0.0.0.0 --port 8080 --reload
 
 # 启动桌面应用
 desktop:
-	cd desktop-app && npm run dev
+	cd app/desktop-app && npm run dev
 
 # Docker 相关
 docker:
@@ -62,6 +62,6 @@ clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	find . -type f -name "*.pyo" -delete 2>/dev/null || true
-	rm -f drone-db-prototype/backend/yugan.db
-	rm -rf drone-db-prototype/backend/uploads/*
+	rm -f drone/drone-db-prototype/backend/yugan.db
+	rm -rf drone/drone-db-prototype/backend/uploads/*
 	@echo "清理完成！"

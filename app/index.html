@@ -20,7 +20,32 @@
                         radial-gradient(ellipse at 80% 60%, rgba(139,92,246,.06) 0%, transparent 50%),
                         var(--bg);
         }
-        .container { text-align: center; max-width: 640px; padding: 24px; }
+        /* 顶部导航栏 */
+        .navbar {
+            position: fixed; top: 0; left: 0; right: 0; height: 60px;
+            background: var(--surface); border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 32px; z-index: 100; backdrop-filter: blur(8px);
+        }
+        .navbar-brand {
+            display: flex; align-items: center; gap: 12px;
+            font-size: 18px; font-weight: 700; color: var(--text);
+        }
+        .navbar-brand .logo-icon {
+            width: 32px; height: 32px;
+            background: linear-gradient(135deg, var(--blue), var(--purple));
+            border-radius: 8px; display: flex; align-items: center; justify-content: center;
+            font-size: 14px; color: #fff; font-weight: 700;
+        }
+        .navbar-time {
+            font-size: 13px; color: var(--text2);
+            font-family: var(--mono); display: flex; align-items: center; gap: 8px;
+        }
+        .navbar-time .pulse {
+            width: 6px; height: 6px; border-radius: 50%;
+            background: var(--success); animation: pulse 2s ease-in-out infinite;
+        }
+        .container { text-align: center; max-width: 640px; padding: 100px 24px 24px; }
         .brand { margin-bottom: 48px; }
         .brand h1 { font-size: 36px; font-weight: 700; letter-spacing: -1px; }
         .brand .sub { display: block; color: var(--muted); font-size: 13px; letter-spacing: 3px; text-transform: uppercase; margin-top: 8px; }
@@ -51,13 +76,34 @@
         .card .card-path { display: inline-block; margin-top: 16px; font-size: 11px; color: var(--muted); font-family: monospace; background: var(--surface2); padding: 4px 10px; border-radius: 4px; }
         .card .card-accent {
             position: absolute; top: 0; left: 0; width: 100%; height: 3px;
-            background: var(--blue);
+            background: linear-gradient(90deg, var(--blue), var(--purple));
         }
-        .card.card-purple .card-accent { background: var(--purple); }
+        .card.card-purple .card-accent {
+            background: linear-gradient(90deg, var(--purple), var(--blue));
+        }
+        .card::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(135deg, rgba(59,130,246,.05), rgba(139,92,246,.05));
+            opacity: 0; transition: opacity .2s; pointer-events: none;
+        }
+        .card:hover::before { opacity: 1; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
         .footer { margin-top: 48px; font-size: 11px; color: var(--muted); }
     </style>
 </head>
 <body>
+    <!-- 顶部导航栏 -->
+    <nav class="navbar">
+        <div class="navbar-brand">
+            <div class="logo-icon">域</div>
+            <span>域感智能</span>
+        </div>
+        <div class="navbar-time">
+            <span class="pulse"></span>
+            <span id="nav-time">--</span>
+        </div>
+    </nav>
+
     <div class="container">
         <div class="brand">
             <h1>域感智能</h1>
@@ -75,53 +121,53 @@
                 <div class="card-icon">✈</div>
                 <div class="card-title">无人机数据管理系统</div>
                 <div class="card-desc">管理无人机图传视频、图片、RFID数据和多SKU管理</div>
-                <span class="card-path">端口 8000</span>
+                <span class="card-path">前端 3000</span>
             </a>
             <a href="#" class="card" id="warehouseCard">
                 <div class="card-accent"></div>
                 <div class="card-icon">◈</div>
                 <div class="card-title">仓库巡检系统</div>
                 <div class="card-desc">基于无人机与基站的高效化仓库巡检联合系统</div>
-                <span class="card-path">端口 8001</span>
+                <span class="card-path">前端 3000</span>
             </a>
         </div>
         <div class="footer">&copy; 2026 域感智能 · 仓库巡检与无人机数据管理平台</div>
     </div>
 
     <script>
+        // 从 URL 参数获取 token
+        function getTokenFromUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('token');
+        }
+        
+        // 从 URL 参数获取用户信息
+        function getUserFromUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const userStr = urlParams.get('user');
+            if (userStr) {
+                try {
+                    return JSON.parse(decodeURIComponent(userStr));
+                } catch (e) {
+                    console.error('Failed to parse user info from URL');
+                    return null;
+                }
+            }
+            return null;
+        }
+        
         // 检查登录状态
         function checkAuth() {
-            const token = localStorage.getItem('yugan_token');
-            const expires = localStorage.getItem('yugan_token_expires');
-            const userStr = localStorage.getItem('yugan_user');
+            const token = getTokenFromUrl();
             
-            if (!token || !expires) {
+            if (!token) {
                 // 未登录，跳转到登录页
                 window.location.href = 'login.html';
                 return null;
             }
             
-            const expiresTime = new Date(expires);
-            if (expiresTime <= new Date()) {
-                // Token 已过期，清除并跳转
-                localStorage.removeItem('yugan_token');
-                localStorage.removeItem('yugan_token_expires');
-                localStorage.removeItem('yugan_user');
-                window.location.href = 'login.html';
-                return null;
-            }
-            
-            // 解析用户信息
-            let user = null;
-            if (userStr) {
-                try {
-                    user = JSON.parse(userStr);
-                } catch (e) {
-                    console.error('Failed to parse user info');
-                }
-            }
-            
-            return { token, expires: expiresTime, user };
+            const user = getUserFromUrl();
+            return { token, user };
         }
         
         // 显示用户信息
@@ -135,39 +181,57 @@
         
         // 获取带 token 的 URL
         function getUrlWithToken(baseUrl) {
-            const token = localStorage.getItem('yugan_token');
-            // 将 token 作为查询参数传递，让子系统自动获取
-            return `${baseUrl}?token=${encodeURIComponent(token)}`;
+            const token = getTokenFromUrl();
+            const user = getUserFromUrl();
+            const userData = user ? `&user=${encodeURIComponent(JSON.stringify(user))}` : '';
+            return `${baseUrl}?token=${encodeURIComponent(token)}${userData}`;
         }
         
         // 登出
         function logout() {
-            localStorage.removeItem('yugan_token');
-            localStorage.removeItem('yugan_token_expires');
-            localStorage.removeItem('yugan_user');
             window.location.href = 'login.html';
         }
         
-        // 初始化页面
+        // 初始化页面（开发模式：跳过登录验证）
         function init() {
-            const authInfo = checkAuth();
-            if (!authInfo) return; // 已跳转
+            // 直接显示用户信息
+            document.getElementById('currentUsername').textContent = 'admin';
             
-            displayUserInfo(authInfo);
+            // 动态检测访问方式，设置正确的路径
+            const isHttp = window.location.protocol.startsWith('http');
+            const dronePath = isHttp ? '/drone/drone-db-prototype/frontend/src/index.html' : '../drone/drone-db-prototype/frontend/src/index.html';
+            const warehousePath = isHttp ? '/station/warehouse-inspection-system/frontend/index.html' : '../station/warehouse-inspection-system/frontend/index.html';
             
-            // 绑定系统卡片点击事件
-            const droneCard = document.getElementById('droneCard');
-            const warehouseCard = document.getElementById('warehouseCard');
-            const logoutBtn = document.getElementById('logoutBtn');
+            document.getElementById('droneCard').href = dronePath;
+            document.getElementById('warehouseCard').href = warehousePath;
             
-            droneCard.href = getUrlWithToken('http://localhost:8000');
-            warehouseCard.href = getUrlWithToken('http://localhost:8001');
-            
-            logoutBtn.addEventListener('click', logout);
+            // 退出按钮返回系统选择页（无需跳转登录）
+            document.getElementById('logoutBtn').style.display = 'none';
         }
         
         // 页面加载时初始化
         init();
+
+        // 更新实时时间
+        function updateTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('zh-CN', {
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            const dateStr = now.toLocaleDateString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            });
+            document.getElementById('nav-time').textContent = `${dateStr} ${timeStr}`;
+        }
+
+        // 立即更新并设置定时器
+        updateTime();
+        setInterval(updateTime, 1000);
     </script>
 </body>
 </html>
