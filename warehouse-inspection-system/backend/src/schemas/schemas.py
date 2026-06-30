@@ -248,6 +248,7 @@ class LoginRequest(BaseModel):
     """登录请求"""
     username: str
     password: str
+    remember_me: bool = False  # 记住登录状态（7天过期）
 
 
 class TokenData(BaseModel):

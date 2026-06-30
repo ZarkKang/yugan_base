@@ -1,14 +1,19 @@
 """
 安全模块 - JWT 认证 + 密码处理
+统一认证配置 - 与无人机数据系统共享 SECRET_KEY
 """
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
-SECRET_KEY = "yugan-secret-key-change-in-production-2024"
+# 统一 SECRET_KEY - 两套系统共享
+SECRET_KEY = "yugan-unified-secret-key-2026-shared-across-systems"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24小时
+
+# Token 过期时间配置
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24      # 24小时（默认）
+ACCESS_TOKEN_EXPIRE_DAYS = 7               # 7天（记住登录状态）
 
 # 密码加密上下文
 # bcrypt__truncate_error=False: 静默截断超过72字节的密码
@@ -26,10 +31,21 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password[:72])
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """创建 JWT token"""
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None, remember_me: bool = False) -> str:
+    """创建 JWT token
+    
+    Args:
+        data: 要编码的数据（如 {"sub": username, "role": role}）
+        expires_delta: 自定义过期时间增量
+        remember_me: 是否记住登录状态（7天过期）
+    """
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    elif remember_me:
+        expire = datetime.utcnow() + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 

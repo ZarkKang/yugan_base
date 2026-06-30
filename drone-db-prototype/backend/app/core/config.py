@@ -5,16 +5,17 @@ from typing import Optional
 class Settings(BaseSettings):
     # Database — 与仓库巡检系统共用 PostgreSQL
     POSTGRES_HOST: str = "localhost"
-    POSTGRES_PORT: int = 5432
-    POSTGRES_USER: str = "warehouse_admin"
-    POSTGRES_PASSWORD: str = "warehouse123"
+    POSTGRES_PORT: int = 5433  # 自建 PostgreSQL 端口
+    POSTGRES_USER: str = "postgres"
+    POSTGRES_PASSWORD: str = ""
     POSTGRES_DB: str = "warehouse_inspection"
     DATABASE_URL: str = ""  # 留空则自动生成
 
-    # Security
-    SECRET_KEY: str = "dev-secret-key-change-in-production"
+    # Security — 统一认证配置（与仓库巡检系统共享）
+    SECRET_KEY: str = "yugan-unified-secret-key-2026-shared-across-systems"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24小时（默认）
+    ACCESS_TOKEN_EXPIRE_DAYS: int = 7           # 7天（记住登录状态）
 
     # Upload
     UPLOAD_DIR: str = "./uploads"

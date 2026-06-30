@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>域感智能 — 统一登录</title>
+    <style>
+        :root {
+            --bg: #0a0f18; --surface: #111827; --surface2: #1a2332;
+            --border: #1e2d3d; --text: #e2e8f0; --text2: #b0bec5; --muted: #5f7d94;
+            --blue: #3b82f6; --purple: #8b5cf6; --green: #10b981; --red: #ef4444;
+            --radius: 10px;
+            --font: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: var(--font); background: var(--bg); color: var(--text);
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: radial-gradient(ellipse at 20% 30%, rgba(59,130,246,.08) 0%, transparent 50%),
+                        radial-gradient(ellipse at 80% 60%, rgba(139,92,246,.08) 0%, transparent 50%),
+                        var(--bg);
+        }
+        .login-card {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 40px 32px; width: 380px; max-width: 90%;
+        }
+        .brand { text-align: center; margin-bottom: 32px; }
+        .brand h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
+        .brand .sub { display: block; color: var(--muted); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; margin-top: 6px; }
+        
+        .form-group { margin-bottom: 20px; }
+        .form-label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 8px; }
+        .form-input {
+            width: 100%; padding: 12px 16px; background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 6px; color: var(--text); font-size: 14px; outline: none;
+            transition: border-color .2s;
+        }
+        .form-input:focus { border-color: var(--blue); }
+        .form-input::placeholder { color: var(--muted); }
+        
+        .remember-row { display: flex; align-items: center; gap: 8px; margin-bottom: 24px; }
+        .remember-checkbox { width: 16px; height: 16px; accent-color: var(--blue); cursor: pointer; }
+        .remember-label { font-size: 13px; color: var(--text2); cursor: pointer; }
+        
+        .login-btn {
+            width: 100%; padding: 12px; background: var(--blue); color: white; font-size: 14px;
+            font-weight: 600; border: none; border-radius: 6px; cursor: pointer;
+            transition: background .2s, transform .1s;
+        }
+        .login-btn:hover { background: #2563eb; }
+        .login-btn:active { transform: scale(.98); }
+        .login-btn:disabled { background: var(--muted); cursor: not-allowed; }
+        
+        .error-msg { 
+            background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
+            color: var(--red); padding: 10px 14px; border-radius: 6px; font-size: 13px;
+            margin-bottom: 20px; display: none;
+        }
+        .error-msg.show { display: block; }
+        
+        .footer { text-align: center; margin-top: 24px; font-size: 11px; color: var(--muted); }
+        
+        /* 加载动画 */
+        .spinner {
+            display: inline-block; width: 16px; height: 16px; border: 2px solid #fff;
+            border-radius: 50%; border-top-color: transparent;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="brand">
+            <h1>域感智能</h1>
+            <span class="sub">统一身份认证</span>
+        </div>
+        
+        <div class="error-msg" id="errorMsg"></div>
+        
+        <form id="loginForm">
+            <div class="form-group">
+                <label class="form-label">用户名</label>
+                <input type="text" class="form-input" id="username" placeholder="请输入用户名" value="admin" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label class="form-label">密码</label>
+                <input type="password" class="form-input" id="password" placeholder="请输入密码" value="admin" autocomplete="current-password">
+            </div>
+            <div class="remember-row">
+                <input type="checkbox" class="remember-checkbox" id="rememberMe">
+                <label class="remember-label" for="rememberMe">记住登录状态（7天内免登录）</label>
+            </div>
+            <button type="submit" class="login-btn" id="loginBtn">登录</button>
+        </form>
+        
+        <div class="footer">
+            默认账号：admin / admin<br>
+            &copy; 2026 域感智能 · 仓库巡检与无人机数据管理平台
+        </div>
+    </div>
+
+    <script>
+        // 配置
+        const GATEWAY_URL = 'http://localhost:8080';
+        const WAREHOUSE_URL = 'http://localhost:8001';
+        
+        // DOM 元素
+        const loginForm = document.getElementById('loginForm');
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+        const rememberMeCheckbox = document.getElementById('rememberMe');
+        const loginBtn = document.getElementById('loginBtn');
+        const errorMsg = document.getElementById('errorMsg');
+        
+        // 显示错误
+        function showError(msg) {
+            errorMsg.textContent = msg;
+            errorMsg.classList.add('show');
+        }
+        
+        // 隐藏错误
+        function hideError() {
+            errorMsg.classList.remove('show');
+        }
+        
+        // 设置按钮状态
+        function setButtonLoading(loading) {
+            loginBtn.disabled = loading;
+            loginBtn.innerHTML = loading ? '<span class="spinner"></span> 登录中...' : '登录';
+        }
+        
+        // 检查是否已登录
+        function checkExistingToken() {
+            const token = localStorage.getItem('yugan_token');
+            const expires = localStorage.getItem('yugan_token_expires');
+            
+            if (token && expires) {
+                const expiresTime = new Date(expires);
+                if (expiresTime > new Date()) {
+                    // Token 未过期，直接跳转
+                    window.location.href = 'index.html';
+                    return true;
+                } else {
+                    // Token 已过期，清除
+                    localStorage.removeItem('yugan_token');
+                    localStorage.removeItem('yugan_token_expires');
+                    localStorage.removeItem('yugan_user');
+                }
+            }
+            return false;
+        }
+        
+        // 页面加载时检查 token
+        if (checkExistingToken()) {
+            // 已跳转，不再执行后续逻辑
+        }
+        
+        // 登录提交
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideError();
+            
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value.trim();
+            const rememberMe = rememberMeCheckbox.checked;
+            
+            if (!username || !password) {
+                showError('请输入用户名和密码');
+                return;
+            }
+            
+            setButtonLoading(true);
+            
+            try {
+                // 先确保 admin 用户存在
+                await fetch(`${WAREHOUSE_URL}/api/v1/auth/ensure-admin`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                // 登录请求
+                const response = await fetch(`${WAREHOUSE_URL}/api/v1/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: username,
+                        password: password,
+                        remember_me: rememberMe
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    // 存储 token
+                    localStorage.setItem('yugan_token', data.access_token);
+                    
+                    // 计算过期时间
+                    const expiresDays = rememberMe ? 7 : 1;
+                    const expiresTime = new Date(Date.now() + expiresDays * 24 * 60 * 60 * 1000);
+                    localStorage.setItem('yugan_token_expires', expiresTime.toISOString());
+                    
+                    // 存储用户信息
+                    if (data.user) {
+                        localStorage.setItem('yugan_user', JSON.stringify(data.user));
+                    }
+                    
+                    // 跳转到系统选择页
+                    window.location.href = 'index.html';
+                } else {
+                    showError(data.message || data.detail || '登录失败，请检查用户名和密码');
+                }
+            } catch (err) {
+                console.error('Login error:', err);
+                showError('网络连接失败，请检查服务是否启动');
+            } finally {
+                setButtonLoading(false);
+            }
+        });
+        
+        // 输入框聚焦时清除错误
+        usernameInput.addEventListener('focus', hideError);
+        passwordInput.addEventListener('focus', hideError);
+    </script>
+</body>
+</html>

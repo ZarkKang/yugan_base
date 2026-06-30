@@ -310,9 +310,49 @@
 <script>
 // ═══════════════════ CONFIG ═══════════════════
 const API = 'http://localhost:8000/api';
-// 优先从 localStorage 恢复 token，否则用默认账号自动登录
-let TOKEN = localStorage.getItem('drone_token') || '';
-let USER = JSON.parse(localStorage.getItem('drone_user') || 'null') || { username: '', role: '' };
+
+// 统一认证检查：从 URL 参数或 localStorage 获取 token
+function getUnifiedToken() {
+    // 优先从 URL 参数获取 token（从系统选择页跳转）
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlToken = urlParams.get('token');
+    if (urlToken) {
+        // 存储 token 到 localStorage
+        localStorage.setItem('yugan_token', urlToken);
+        // 清理 URL 参数
+        window.history.replaceState({}, document.title, window.location.pathname);
+        return urlToken;
+    }
+    
+    // 从 localStorage 获取统一认证 token
+    const storedToken = localStorage.getItem('yugan_token');
+    const expires = localStorage.getItem('yugan_token_expires');
+    
+    if (storedToken && expires) {
+        const expiresTime = new Date(expires);
+        if (expiresTime > new Date()) {
+            return storedToken;
+        } else {
+            // Token 已过期，清除
+            localStorage.removeItem('yugan_token');
+            localStorage.removeItem('yugan_token_expires');
+            localStorage.removeItem('yugan_user');
+        }
+    }
+    
+    return null;
+}
+
+// 检查统一认证状态
+const unifiedToken = getUnifiedToken();
+if (!unifiedToken) {
+    // 未登录，跳转到统一登录页
+    window.location.href = '../../../login.html';
+}
+
+// 使用统一认证 token
+let TOKEN = unifiedToken || '';
+let USER = JSON.parse(localStorage.getItem('yugan_user') || 'null') || { username: '', role: '' };
 
 // ═══════════════════ UTILS ═══════════════════
 function toast(msg, type='success') {
@@ -332,11 +372,11 @@ async function api(url, opts={}) {
     }
     const res = await fetch(url, { ...opts, headers: h });
     if (res.status === 401) {
-        localStorage.removeItem('drone_token');
-        localStorage.removeItem('drone_user');
-        TOKEN = '';
-        document.getElementById('app-screen').style.display = 'none';
-        document.getElementById('login-screen').style.display = 'flex';
+        // 统一认证过期，跳转到登录页
+        localStorage.removeItem('yugan_token');
+        localStorage.removeItem('yugan_token_expires');
+        localStorage.removeItem('yugan_user');
+        window.location.href = '../../../login.html';
         throw new Error('登录已过期，请重新登录');
     }
     if (!res.ok) {

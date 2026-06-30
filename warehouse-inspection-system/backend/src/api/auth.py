@@ -14,6 +14,7 @@ from ..core.security import (
     get_password_hash,
     create_access_token,
     decode_access_token,
+    ACCESS_TOKEN_EXPIRE_DAYS,
 )
 from ..schemas.schemas import (
     LoginRequest,
@@ -70,6 +71,7 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     用户登录
 
     返回 JWT access_token 和用户信息。
+    支持 remember_me 参数：True 时 token 有效期为 7 天。
     """
     user = db.query(User).filter(User.username == request.username).first()
     if not user:
@@ -88,7 +90,10 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
             detail="账户已禁用",
         )
 
-    access_token = create_access_token(data={"sub": user.username, "role": user.role})
+    access_token = create_access_token(
+        data={"sub": user.username, "role": user.role},
+        remember_me=request.remember_me
+    )
     user_data = UserResponse(
         id=user.id,
         username=user.username,
@@ -158,14 +163,17 @@ def register(
 
 @router.post("/ensure-admin", response_model=APIResponse)
 def ensure_admin_user(db: Session = Depends(get_db)):
-    """确保 admin 用户存在且密码正确 — 登录兜底"""
+    """确保 admin 用户存在且密码正确 — 统一登录兜底
+    
+    默认账号密码：admin / admin
+    """
     try:
         admin = db.query(User).filter(User.username == "admin").first()
         if admin is None:
             admin = User(
                 username="admin",
                 email="admin@yugan.local",
-                hashed_password=get_password_hash("admin123"),
+                hashed_password=get_password_hash("admin"),
                 full_name="系统管理员",
                 role="admin",
                 is_active=True,
@@ -173,14 +181,14 @@ def ensure_admin_user(db: Session = Depends(get_db)):
             db.add(admin)
         else:
             try:
-                if not verify_password("admin123", admin.hashed_password):
-                    admin.hashed_password = get_password_hash("admin123")
+                if not verify_password("admin", admin.hashed_password):
+                    admin.hashed_password = get_password_hash("admin")
             except Exception:
-                admin.hashed_password = get_password_hash("admin123")
+                admin.hashed_password = get_password_hash("admin")
             if not admin.is_active:
                 admin.is_active = True
         db.commit()
-        return APIResponse(success=True, message="admin 用户已就绪")
+        return APIResponse(success=True, message="admin 用户已就绪（密码：admin）")
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

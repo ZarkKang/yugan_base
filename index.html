@@ -24,6 +24,17 @@
         .brand { margin-bottom: 48px; }
         .brand h1 { font-size: 36px; font-weight: 700; letter-spacing: -1px; }
         .brand .sub { display: block; color: var(--muted); font-size: 13px; letter-spacing: 3px; text-transform: uppercase; margin-top: 8px; }
+        .user-info { 
+            background: var(--surface2); padding: 12px 20px; border-radius: 6px; 
+            font-size: 13px; color: var(--text2); margin-bottom: 24px;
+        }
+        .user-info span { color: var(--blue); font-weight: 500; }
+        .logout-btn {
+            background: transparent; border: 1px solid var(--border); color: var(--muted);
+            padding: 6px 12px; font-size: 12px; border-radius: 4px; cursor: pointer;
+            margin-left: 12px; transition: all .2s;
+        }
+        .logout-btn:hover { border-color: var(--red); color: var(--red); }
         .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         @media (max-width: 560px) { .cards { grid-template-columns: 1fr; } }
         .card {
@@ -52,15 +63,21 @@
             <h1>域感智能</h1>
             <span class="sub">Yugan Intelligence Platform</span>
         </div>
+        
+        <div class="user-info" id="userInfo">
+            当前用户：<span id="currentUsername">-</span>
+            <button class="logout-btn" id="logoutBtn">退出登录</button>
+        </div>
+        
         <div class="cards">
-            <a href="http://localhost:8000" class="card card-purple">
+            <a href="#" class="card card-purple" id="droneCard">
                 <div class="card-accent"></div>
                 <div class="card-icon">✈</div>
                 <div class="card-title">无人机数据管理系统</div>
                 <div class="card-desc">管理无人机图传视频、图片、RFID数据和多SKU管理</div>
                 <span class="card-path">端口 8000</span>
             </a>
-            <a href="http://localhost:8001" class="card">
+            <a href="#" class="card" id="warehouseCard">
                 <div class="card-accent"></div>
                 <div class="card-icon">◈</div>
                 <div class="card-title">仓库巡检系统</div>
@@ -70,5 +87,87 @@
         </div>
         <div class="footer">&copy; 2026 域感智能 · 仓库巡检与无人机数据管理平台</div>
     </div>
+
+    <script>
+        // 检查登录状态
+        function checkAuth() {
+            const token = localStorage.getItem('yugan_token');
+            const expires = localStorage.getItem('yugan_token_expires');
+            const userStr = localStorage.getItem('yugan_user');
+            
+            if (!token || !expires) {
+                // 未登录，跳转到登录页
+                window.location.href = 'login.html';
+                return null;
+            }
+            
+            const expiresTime = new Date(expires);
+            if (expiresTime <= new Date()) {
+                // Token 已过期，清除并跳转
+                localStorage.removeItem('yugan_token');
+                localStorage.removeItem('yugan_token_expires');
+                localStorage.removeItem('yugan_user');
+                window.location.href = 'login.html';
+                return null;
+            }
+            
+            // 解析用户信息
+            let user = null;
+            if (userStr) {
+                try {
+                    user = JSON.parse(userStr);
+                } catch (e) {
+                    console.error('Failed to parse user info');
+                }
+            }
+            
+            return { token, expires: expiresTime, user };
+        }
+        
+        // 显示用户信息
+        function displayUserInfo(authInfo) {
+            if (authInfo && authInfo.user) {
+                document.getElementById('currentUsername').textContent = authInfo.user.username || 'admin';
+            } else {
+                document.getElementById('currentUsername').textContent = 'admin';
+            }
+        }
+        
+        // 获取带 token 的 URL
+        function getUrlWithToken(baseUrl) {
+            const token = localStorage.getItem('yugan_token');
+            // 将 token 作为查询参数传递，让子系统自动获取
+            return `${baseUrl}?token=${encodeURIComponent(token)}`;
+        }
+        
+        // 登出
+        function logout() {
+            localStorage.removeItem('yugan_token');
+            localStorage.removeItem('yugan_token_expires');
+            localStorage.removeItem('yugan_user');
+            window.location.href = 'login.html';
+        }
+        
+        // 初始化页面
+        function init() {
+            const authInfo = checkAuth();
+            if (!authInfo) return; // 已跳转
+            
+            displayUserInfo(authInfo);
+            
+            // 绑定系统卡片点击事件
+            const droneCard = document.getElementById('droneCard');
+            const warehouseCard = document.getElementById('warehouseCard');
+            const logoutBtn = document.getElementById('logoutBtn');
+            
+            droneCard.href = getUrlWithToken('http://localhost:8000');
+            warehouseCard.href = getUrlWithToken('http://localhost:8001');
+            
+            logoutBtn.addEventListener('click', logout);
+        }
+        
+        // 页面加载时初始化
+        init();
+    </script>
 </body>
 </html>

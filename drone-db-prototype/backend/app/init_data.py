@@ -10,29 +10,32 @@ logger = logging.getLogger(__name__)
 
 
 def ensure_admin(db):
-    """确保 admin 用户存在且密码可用"""
+    """确保 admin 用户存在且密码可用
+    
+    统一认证：密码为 admin
+    """
     admin = db.query(User).filter(User.username == "admin").first()
     if admin is None:
         admin = User(
             username="admin",
             email="admin@yugan.com",
-            hashed_password=get_password_hash("admin123"),
+            hashed_password=get_password_hash("admin"),
             is_active=True,
             role="admin"
         )
         db.add(admin)
-        logger.info("✅ admin 用户已创建")
+        logger.info("✅ admin 用户已创建（密码：admin）")
     else:
         # 验证密码是否可验证（防止bcrypt版本变更导致hash不兼容）
         try:
-            if not verify_password("admin123", admin.hashed_password):
-                admin.hashed_password = get_password_hash("admin123")
-                logger.info("🔄 admin 密码已刷新（旧hash不兼容）")
+            if not verify_password("admin", admin.hashed_password):
+                admin.hashed_password = get_password_hash("admin")
+                logger.info("🔄 admin 密码已刷新为统一密码（admin）")
             if not admin.is_active:
                 admin.is_active = True
                 logger.info("🔄 admin 账户已重新激活")
         except Exception as e:
-            admin.hashed_password = get_password_hash("admin123")
+            admin.hashed_password = get_password_hash("admin")
             logger.warning(f"🔄 admin 密码重置（验证异常: {e}）")
     db.flush()
     return admin
