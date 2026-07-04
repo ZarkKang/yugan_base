@@ -3,7 +3,7 @@ API路由 - 认证
 =================
 用户登录、token管理、权限验证
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Form, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -30,16 +30,29 @@ security_scheme = HTTPBearer(auto_error=False)
 
 def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
+    token: Optional[str] = Query(None, include_in_schema=False),
     db: Session = Depends(get_db),
 ) -> User:
-    """获取当前登录用户"""
-    if credentials is None:
+    """获取当前登录用户
+    
+    支持两种认证方式：
+    1. Authorization: Bearer <token>（标准方式，用于API调用）
+    2. ?token=<token>（查询参数，用于<img src>/<a href>等无法设置Header的场景）
+    """
+    # 优先从 Authorization Header 获取
+    bearer_token = None
+    if credentials is not None:
+        bearer_token = credentials.credentials
+    
+    # 回退到 query parameter（用于文件下载等无法设置Header的场景）
+    actual_token = bearer_token or token
+    
+    if actual_token is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="未提供认证凭证",
         )
-    token = credentials.credentials
-    payload = decode_access_token(token)
+    payload = decode_access_token(actual_token)
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -187,26 +187,27 @@
             return `${baseUrl}?token=${encodeURIComponent(token)}${userData}`;
         }
         
-        // 登出
+        // 退出登录：清除 token 并跳转到登录页
         function logout() {
             window.location.href = 'login.html';
         }
         
-        // 初始化页面（开发模式：跳过登录验证）
+        // 初始化页面
         function init() {
-            // 直接显示用户信息
-            document.getElementById('currentUsername').textContent = 'admin';
+            // 检查认证状态
+            const authInfo = checkAuth();
+            if (!authInfo) return; // checkAuth 会跳转到登录页
             
-            // 动态检测访问方式，设置正确的路径
+            // 显示用户信息
+            displayUserInfo(authInfo);
+            
+            // 动态检测访问方式，设置正确的路径（带 token）
             const isHttp = window.location.protocol.startsWith('http');
-            const dronePath = isHttp ? '/drone/drone-db-prototype/frontend/src/index.html' : '../drone/drone-db-prototype/frontend/src/index.html';
-            const warehousePath = isHttp ? '/station/warehouse-inspection-system/frontend/index.html' : '../station/warehouse-inspection-system/frontend/index.html';
+            const droneBase = isHttp ? '/drone/drone-db-prototype/frontend/src/index.html' : '../drone/drone-db-prototype/frontend/src/index.html';
+            const warehouseBase = isHttp ? '/station/warehouse-inspection-system/frontend/index.html' : '../station/warehouse-inspection-system/frontend/index.html';
             
-            document.getElementById('droneCard').href = dronePath;
-            document.getElementById('warehouseCard').href = warehousePath;
-            
-            // 退出按钮返回系统选择页（无需跳转登录）
-            document.getElementById('logoutBtn').style.display = 'none';
+            document.getElementById('droneCard').href = getUrlWithToken(droneBase);
+            document.getElementById('warehouseCard').href = getUrlWithToken(warehouseBase);
         }
         
         // 页面加载时初始化

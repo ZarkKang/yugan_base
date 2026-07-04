@@ -170,6 +170,9 @@ class RFIDReader:
         '/dev/ttyUSB', '/dev/ttyACM', '/dev/ttyS', 'COM', '/dev/cu.',
     ]
 
+    # 扫描历史记录上限（内存循环覆盖）
+    SCAN_HISTORY_MAX = 1000
+
     def __init__(self, config: Optional[RFIDConfig] = None):
         self.config = config or RFIDConfig()
         self.serial: Optional[SerialComm] = None
@@ -180,6 +183,10 @@ class RFIDReader:
         self._connected = False
         self._auto_detected_port: Optional[str] = None
         self.on_tag_detected: Optional[Callable[[RFIDTag], None]] = None
+        # 扫描事件历史（按时间顺序追加，超出上限丢弃最早）
+        self._scan_history: List[Dict] = []
+        # 统计计数
+        self._stats = {"auto": 0, "single": 0, "manual": 0, "unique_tags": 0}
 
     # ═══════════════════════════════════════════════════════
     #  帧构建 / 解析 (对齐 C# Commands.BuildFrame)
@@ -198,6 +205,64 @@ class RFIDReader:
     def _calc_checksum(data: bytes) -> int:
         """校验和: 从 Type 到最后一个 Parameter 累加取 LSB"""
         return sum(data) & 0xFF
+
+    # ═══════════════════════════════════════════════════════
+    #  扫描历史记录（用于看板实时展示）
+    # ═══════════════════════════════════════════════════════
+
+    def _append_scan_history(self, tag: "RFIDTag", mode: str):
+        """将单次扫描事件追加到历史记录（线程安全）
+
+        mode: auto(连续扫描) / single(单次盘存) / manual(手动触发)
+        """
+        event = {
+            "tag_id": tag.tag_id,
+            "rssi": tag.rssi,
+            "pc": tag.pc,
+            "crc": tag.crc,
+            "read_time": tag.read_time,
+            "mode": mode,
+        }
+        with self._lock:
+            self._scan_history.append(event)
+            if len(self._scan_history) > self.SCAN_HISTORY_MAX:
+                # 丢弃最早的一半，避免频繁切片
+                cut = len(self._scan_history) - self.SCAN_HISTORY_MAX
+                del self._scan_history[:cut]
+            self._stats[mode] = self._stats.get(mode, 0) + 1
+            self._stats["unique_tags"] = len(self._last_tags)
+
+    def get_scan_history(self, limit: int = 100, since: float = 0.0) -> List[Dict]:
+        """获取扫描事件历史（最新在前）
+
+        limit: 最多返回条数
+        since: 仅返回 read_time > since 的事件（用于增量轮询）
+        """
+        with self._lock:
+            items = [e for e in self._scan_history if e["read_time"] > since]
+        items.sort(key=lambda x: x["read_time"], reverse=True)
+        return items[:limit]
+
+    def clear_scan_history(self):
+        """清空扫描历史（不清空 _last_tags）"""
+        with self._lock:
+            self._scan_history.clear()
+            self._stats = {"auto": 0, "single": 0, "manual": 0, "unique_tags": len(self._last_tags)}
+
+    def get_scan_stats(self) -> Dict:
+        """获取扫描统计"""
+        with self._lock:
+            latest = self._scan_history[-1]["read_time"] if self._scan_history else None
+            return {
+                "total_events": len(self._scan_history),
+                "unique_tags": len(self._last_tags),
+                "auto_count": self._stats.get("auto", 0),
+                "single_count": self._stats.get("single", 0),
+                "manual_count": self._stats.get("manual", 0),
+                "latest_event_time": latest,
+                "scanning": self._running,
+                "connected": self.is_connected(),
+            }
 
     # ═══════════════════════════════════════════════════════
     #  接收解析
@@ -527,6 +592,7 @@ class RFIDReader:
                     if tag:
                         with self._lock:
                             self._last_tags[tag.tag_id] = tag
+                        self._append_scan_history(tag, mode="single")
                         return tag
 
                 # TYPE_ANSWER + CMD_EXE_FAILED = 错误
@@ -1213,6 +1279,8 @@ class RFIDReader:
                         with self._lock:
                             is_new = tag.tag_id not in self._last_tags
                             self._last_tags[tag.tag_id] = tag
+                        # 记录到扫描历史（每次读取都记，不区分是否为新标签）
+                        self._append_scan_history(tag, mode="auto")
                         if is_new and self.on_tag_detected:
                             try:
                                 self.on_tag_detected(tag)

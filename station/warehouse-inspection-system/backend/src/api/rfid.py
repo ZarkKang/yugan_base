@@ -18,12 +18,18 @@ RFID API路由 - 读取/写入标签数据 (PRE系列 UHF 模块)
   POST /api/v1/rfid/power          设置发射功率
   POST /api/v1/rfid/query          设置盘存 Query 参数
   POST /api/v1/rfid/region         设置工作地区
+
+  ── 看板扩展（本次新增） ──
+  GET  /api/v1/rfid/scan/history   拉取扫描事件历史（增量轮询）
+  GET  /api/v1/rfid/scan/stats     看板统计（总数/唯一标签/分类计数）
+  POST /api/v1/rfid/scan/clear-history  清空扫描历史
+  POST /api/v1/rfid/scan/auto      启停"自动扫描模式"（封装 connect+start）
 """
 import logging
 import sys
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -230,6 +236,81 @@ def clear_tags():
     reader = get_rfid_reader()
     reader.clear_last_tags()
     return APIResponse(success=True, message="标签缓存已清空")
+
+
+# ═══════════════════════════════════════════════════════════
+#  看板扩展端点（扫描历史 / 统计 / 自动扫描模式）
+# ═══════════════════════════════════════════════════════════
+
+@router.get("/scan/history")
+def get_scan_history(
+    limit: int = Query(100, ge=1, le=1000, description="最多返回条数"),
+    since: float = Query(0.0, ge=0.0, description="仅返回 read_time > since 的事件（Unix 秒）"),
+):
+    """拉取扫描事件历史（最新在前，支持增量轮询）
+
+    前端看板用法：首次 since=0 拉全量，之后用上一轮最大 read_time 作为 since 增量拉取。
+    """
+    reader = get_rfid_reader()
+    items = reader.get_scan_history(limit=limit, since=since)
+    # 序列化时间戳为 ISO 字符串，便于前端展示
+    serialized = [
+        {
+            "tag_id": e["tag_id"],
+            "rssi": e["rssi"],
+            "pc": e["pc"],
+            "crc": e["crc"],
+            "read_time": e["read_time"],
+            "read_time_iso": datetime.fromtimestamp(e["read_time"]).isoformat() if e["read_time"] else None,
+            "mode": e["mode"],
+        }
+        for e in items
+    ]
+    return APIResponse(success=True, data={
+        "total": len(serialized),
+        "events": serialized,
+    })
+
+
+@router.get("/scan/stats")
+def get_scan_stats():
+    """看板统计：总数、唯一标签、auto/single/manual 分类计数、扫描状态"""
+    reader = get_rfid_reader()
+    stats = reader.get_scan_stats()
+    return APIResponse(success=True, data=stats)
+
+
+@router.post("/scan/clear-history")
+def clear_scan_history():
+    """清空扫描事件历史（不清空 _last_tags 缓存）"""
+    reader = get_rfid_reader()
+    reader.clear_scan_history()
+    return APIResponse(success=True, message="扫描历史已清空")
+
+
+class AutoScanRequest(BaseModel):
+    enable: bool = Field(..., description="true=启动自动扫描(连接+开始), false=停止")
+
+
+@router.post("/scan/auto")
+def set_auto_scan(req: AutoScanRequest):
+    """启停"自动扫描模式" — 一键封装 connect + start_continuous_scan
+
+    与 /scan/start 区别：本端点会先确保已连接，便于前端"一键启动"。
+    停止时仅停扫描，不断开连接。
+    """
+    reader = get_rfid_reader()
+    if req.enable:
+        if not reader.is_connected():
+            if not reader.connect():
+                return APIResponse(success=False, message="RFID连接失败，无法启动自动扫描")
+        if reader._running:
+            return APIResponse(success=True, message="自动扫描已在运行", data={"scanning": True})
+        reader.start_continuous_scan()
+        return APIResponse(success=True, message="自动扫描已启动", data={"scanning": True})
+    else:
+        reader.stop_continuous_scan()
+        return APIResponse(success=True, message="自动扫描已停止", data={"scanning": False})
 
 
 # ═══════════════════════════════════════════════════════════

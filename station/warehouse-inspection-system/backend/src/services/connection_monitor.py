@@ -32,7 +32,13 @@ class ConnectionStatus:
 class ConnectionMonitor:
     """连接状态监控服务"""
 
-    # 需要监控的模块配置
+    # 需要监控的模块配置 - 支持环境变量覆盖
+    import os as _os
+    _BACKEND_HOST = _os.environ.get("BACKEND_API_HOST", "127.0.0.1")
+    _BACKEND_PORT = int(_os.environ.get("BACKEND_API_PORT", "8000"))
+    _GATEWAY_HOST = _os.environ.get("API_GATEWAY_HOST", "127.0.0.1")
+    _GATEWAY_PORT = int(_os.environ.get("API_GATEWAY_PORT", "8080"))
+
     TARGETS = {
         "video_transmitter": {
             "name": "图传模块",
@@ -44,15 +50,15 @@ class ConnectionMonitor:
         },
         "backend_api": {
             "name": "后端API",
-            "host": "127.0.0.1",
-            "port": 8000,
+            "host": _BACKEND_HOST,
+            "port": _BACKEND_PORT,
             "type": "tcp",
             "timeout": 2.0,
         },
         "api_gateway": {
             "name": "API网关",
-            "host": "127.0.0.1",
-            "port": 8080,
+            "host": _GATEWAY_HOST,
+            "port": _GATEWAY_PORT,
             "type": "tcp",
             "timeout": 2.0,
         },

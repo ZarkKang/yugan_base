@@ -5,7 +5,7 @@ from datetime import datetime
 
 class DroneBase(BaseModel):
     drone_code: str
-    name: str
+    name: Optional[str] = None
     model: Optional[str] = None
     manufacturer: Optional[str] = None
     status: str = "idle"

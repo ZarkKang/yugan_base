@@ -21,8 +21,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from ..db.database import get_db
-from ..models.models import Drone, Task, Waypoint, ImageRecord, InventoryItem
+from ..models.models import Drone, Task, Waypoint, ImageRecord, InventoryItem, User
 from ..schemas.schemas import APIResponse
+from .auth import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/images", tags=["图像管理"])
@@ -159,7 +160,7 @@ async def upload_image(
 
 
 @router.get("/{image_id}")
-async def get_image_info(image_id: str, db: Session = Depends(get_db)):
+async def get_image_info(image_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """获取图像元信息（不下载文件）"""
     record = db.query(ImageRecord).filter(ImageRecord.id == image_id).first()
     if not record:
@@ -189,7 +190,7 @@ async def get_image_info(image_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{image_id}/file")
-async def download_image(image_id: str, db: Session = Depends(get_db)):
+async def download_image(image_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """下载图像源文件（用于前端查看/证据图）"""
     record = db.query(ImageRecord).filter(ImageRecord.id == image_id).first()
     if not record:
@@ -248,7 +249,7 @@ async def get_recognition_result(image_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/task/{task_code}")
-async def list_task_images(task_code: str, db: Session = Depends(get_db)):
+async def list_task_images(task_code: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """获取某任务的所有图像列表（含识别状态）"""
     images = (
         db.query(ImageRecord)

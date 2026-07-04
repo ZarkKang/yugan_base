@@ -2,6 +2,7 @@
 系统状态API - 连接检测、健康状态
   GET /api/v1/system/status       获取所有连接状态
   GET /api/v1/system/health       增强版健康检查
+  GET /api/v1/system/workers      双 Worker 队列状态
   POST /api/v1/system/reconnect   重新检测所有连接
 """
 import logging
@@ -59,6 +60,16 @@ def get_module_status(module_id: str):
         "response_time_ms": status.response_time_ms,
         "error_message": status.error_message,
         "details": status.details,
+    })
+
+
+@router.get("/workers")
+def get_workers_status():
+    """双 Worker 队列状态验证 - gateway 队列 + QR 引擎队列"""
+    from .ws import get_workers_status as _get_ws, get_broadcaster
+    return APIResponse(success=True, data={
+        "workers": _get_ws(),
+        "broadcast": get_broadcaster().get_stats(),
     })
 
 

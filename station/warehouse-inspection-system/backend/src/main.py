@@ -1,7 +1,7 @@
 """
 FastAPI 应用主入口
 """
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -9,6 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 import logging
 import os
+import json
 from pathlib import Path
 
 from .core.config import settings
@@ -16,6 +17,9 @@ from .db.database import init_db, engine
 from .db.redis import redis_client
 from .db.seed import seed_data
 from .api import auth, inspection, drones, gateway, images, rfid, system, dashboard, shelves, skus, videos, inbound, drone_integration
+from .api import ws as ws_api
+from .api.auth import get_current_user
+from .api.ws import get_broadcaster
 from .core.exceptions import (
     validation_exception_handler,
     http_exception_handler,
@@ -38,6 +42,11 @@ async def lifespan(app: FastAPI):
     # 启动时
     logger.info(f"启动 {settings.APP_NAME} v{settings.APP_VERSION}")
 
+    # 设置事件循环给 WebSocket 广播器 (跨线程 publish 用)
+    import asyncio as _asyncio
+    get_broadcaster().set_loop(_asyncio.get_running_loop())
+    logger.info("[WS] EventBroadcaster 事件循环已绑定")
+
     # 初始化数据库
     init_db()
     logger.info("数据库初始化完成")
@@ -59,12 +68,40 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"自动化任务调度器启动失败: {e}")
 
+    # RFID 自动连接 / 自动扫描（受配置项控制，默认关闭）
+    try:
+        from .hardware.rfid_reader import get_rfid_reader
+        reader = get_rfid_reader()
+        if settings.RFID_AUTO_CONNECT_ON_START:
+            if reader.connect():
+                logger.info("[RFID] 启动时自动连接成功")
+                if settings.RFID_AUTO_SCAN_ON_START:
+                    reader.start_continuous_scan()
+                    logger.info("[RFID] 启动时自动连续扫描已开启")
+            else:
+                logger.warning("[RFID] 启动时自动连接失败，跳过自动扫描")
+        elif settings.RFID_AUTO_SCAN_ON_START:
+            # 仅开启自动扫描但未开启自动连接 → 也尝试连接一次
+            if reader.connect():
+                reader.start_continuous_scan()
+                logger.info("[RFID] 启动时自动连续扫描已开启")
+            else:
+                logger.warning("[RFID] 自动扫描启用但连接失败，跳过")
+    except Exception as e:
+        logger.warning(f"[RFID] 启动时自动扫描初始化失败: {e}")
+
     yield
 
     # 关闭时 — 优雅停止入库服务
     try:
         from .services.inbound_service import get_inbound_service
         get_inbound_service().stop()
+    except Exception:
+        pass
+    # 关闭时 — 停止 RFID 连续扫描（纯扫描模式，独立于入库服务）
+    try:
+        from .hardware.rfid_reader import get_rfid_reader
+        get_rfid_reader().stop_continuous_scan()
     except Exception:
         pass
     # 停止自动化任务调度器
@@ -90,10 +127,16 @@ app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(Exception, global_exception_handler)
 
 
-# CORS配置
+# CORS配置 - 从环境变量读取白名单
+_cors_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+try:
+    _cors_origins = json.loads(settings.CORS_ORIGINS)
+except (json.JSONDecodeError, TypeError):
+    pass
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 生产环境应限制
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -124,19 +167,28 @@ else:
     logger.warning(f"前端静态文件目录不存在: {FRONTEND_DIR}")
 
 # 注册路由
+# auth 路由: 登录/注册等公开端点，不需全局认证
 app.include_router(auth.router, prefix="/api/v1")
+
+# 纯前端路由: 需要 JWT 认证
+app.include_router(rfid.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+app.include_router(system.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+app.include_router(dashboard.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+app.include_router(shelves.router, prefix="/api/v1")  # shelves端点自带认证
+app.include_router(skus.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+app.include_router(inbound.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+app.include_router(drone_integration.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+
+# 混合路由: 部分端点供无人机调用(无认证)，部分供前端调用(需认证)
+# 这些路由在端点级别添加认证
 app.include_router(inspection.router, prefix="/api/v1")
 app.include_router(drones.router, prefix="/api/v1")
 app.include_router(gateway.router, prefix="/api/v1")
 app.include_router(images.router, prefix="/api/v1")
-app.include_router(rfid.router, prefix="/api/v1")
-app.include_router(system.router, prefix="/api/v1")
-app.include_router(dashboard.router, prefix="/api/v1")
-app.include_router(shelves.router, prefix="/api/v1")
-app.include_router(skus.router, prefix="/api/v1")
 app.include_router(videos.router, prefix="/api/v1")
-app.include_router(inbound.router, prefix="/api/v1")
-app.include_router(drone_integration.router, prefix="/api/v1")
+
+# WebSocket + 实时监控 (无前缀, WS 路径为 /ws/monitor; /system/workers 由 system.py 提供)
+app.include_router(ws_api.router)
 
 
 @app.get("/", response_class=HTMLResponse)

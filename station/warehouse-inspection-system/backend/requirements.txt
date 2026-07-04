@@ -9,8 +9,9 @@ opencv-python>=4.8.0
 pillow>=10.1.0
 pyzbar>=0.1.9
 pyserial>=3.5
-numpy>=1.26.0
+numpy==1.26.4  # OpenCV requires numpy 1.26 (incompatible with numpy 2.x)
 pydantic>=2.5.0
+pydantic-settings>=2.1.0  # Missing dependency
 python-multipart>=0.0.6
 aiofiles>=23.2.1
 python-socketio>=5.10.0

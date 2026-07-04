@@ -12,8 +12,9 @@ from ..schemas.schemas import (
     DroneResponse,
     APIResponse
 )
-from ..models.models import Drone
+from ..models.models import Drone, User
 from ..services.device_verification import upsert_device_from_heartbeat
+from .auth import get_current_user
 
 router = APIRouter(prefix="/drones", tags=["无人机管理"])
 
@@ -24,7 +25,7 @@ _AUTO_SYNC_STATES = {"idle", "online", "offline"}
 
 
 @router.post("/", response_model=APIResponse)
-def create_drone(drone: DroneCreate, db: Session = Depends(get_db)):
+def create_drone(drone: DroneCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """注册新无人机"""
     existing = db.query(Drone).filter(Drone.drone_code == drone.drone_code).first()
     if existing:
@@ -39,7 +40,8 @@ def create_drone(drone: DroneCreate, db: Session = Depends(get_db)):
 @router.get("/", response_model=List[DroneResponse])
 def list_drones(
     status: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """获取无人机列表
 
@@ -73,7 +75,7 @@ def list_drones(
 
 
 @router.get("/{drone_id}", response_model=DroneResponse)
-def get_drone(drone_id: int, db: Session = Depends(get_db)):
+def get_drone(drone_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """获取无人机详情"""
     drone = db.query(Drone).filter(Drone.id == drone_id).first()
     if not drone:
@@ -85,7 +87,8 @@ def get_drone(drone_id: int, db: Session = Depends(get_db)):
 def update_drone(
     drone_id: int,
     update: DroneUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """更新无人机信息"""
     drone = db.query(Drone).filter(Drone.id == drone_id).first()
@@ -100,7 +103,7 @@ def update_drone(
 
 
 @router.delete("/{drone_id}", response_model=APIResponse)
-def delete_drone(drone_id: int, db: Session = Depends(get_db)):
+def delete_drone(drone_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """删除无人机"""
     drone = db.query(Drone).filter(Drone.id == drone_id).first()
     if not drone:

@@ -14,8 +14,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from ..db.database import get_db
-from ..models.models import Drone, Task
+from ..models.models import Drone, Task, User
 from ..schemas.schemas import APIResponse
+from .auth import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/videos", tags=["视频管理"])
@@ -101,7 +102,7 @@ async def upload_video(
 
 
 @router.get("/{video_id}", response_model=APIResponse)
-async def get_video_info(video_id: str, db: Session = Depends(get_db)):
+async def get_video_info(video_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """获取视频元信息"""
     from ..models.models import ImageRecord
     record = db.query(ImageRecord).filter(
@@ -124,7 +125,7 @@ async def get_video_info(video_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{video_id}/file")
-async def download_video(video_id: str, db: Session = Depends(get_db)):
+async def download_video(video_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """下载视频源文件"""
     from ..models.models import ImageRecord
     record = db.query(ImageRecord).filter(ImageRecord.id == video_id).first()
@@ -142,7 +143,7 @@ async def download_video(video_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/task/{task_code}", response_model=APIResponse)
-async def list_task_videos(task_code: str, db: Session = Depends(get_db)):
+async def list_task_videos(task_code: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """获取某任务的所有视频列表"""
     from ..models.models import ImageRecord
     videos = (
@@ -168,7 +169,7 @@ async def list_task_videos(task_code: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/{video_id}", response_model=APIResponse)
-async def delete_video(video_id: str, db: Session = Depends(get_db)):
+async def delete_video(video_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """删除视频"""
     from ..models.models import ImageRecord
     record = db.query(ImageRecord).filter(ImageRecord.id == video_id).first()

@@ -123,12 +123,41 @@ class ShelfResponse(ShelfBase):
     position_x: Optional[float]
     position_y: Optional[float]
     position_z: Optional[float]
+    yaw_rad: Optional[float] = None
+    arrival_radius_m: Optional[float] = None
+    dwell_time_s: Optional[float] = None
     qr_code: Optional[str]
     status: str
+    archived_at: Optional[datetime] = None
     created_at: datetime
+    last_synced_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+# 无人机端货架同步Schema（与shelves.yaml格式对齐）
+class DroneShelfItem(BaseModel):
+    shelf_id: str
+    shelf_name: Optional[str] = None
+    position: Optional[dict] = None  # {x, y, z}
+    yaw_rad: Optional[float] = None
+    arrival_radius_m: Optional[float] = None
+    dwell_time_s: Optional[float] = None
+
+
+class DroneShelfSyncRequest(BaseModel):
+    version: Optional[int] = 1
+    coordinate_frame: Optional[str] = None
+    shelves: List[DroneShelfItem] = []
+
+
+class ShelfSyncResult(BaseModel):
+    added: int = 0
+    updated: int = 0
+    archived: int = 0
+    total: int = 0
+    details: Optional[dict] = None
 
 
 # ========== RFID标签 Schema ==========
@@ -173,6 +202,7 @@ class TaskCreate(TaskBase):
 class TaskUpdate(BaseModel):
     status: Optional[TaskStatusEnum] = None
     drone_id: Optional[int] = None
+    session_id: Optional[int] = None
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
 

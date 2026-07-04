@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     ETHERNET_HOST: str = "192.168.1.100"
     ETHERNET_PORT: int = 8080
 
+    # RFID 自动扫描配置（应用启动时自动连接并开始连续扫描）
+    # 默认关闭：无硬件环境（CI、纯前端调试）不应因连接失败而阻塞启动
+    RFID_AUTO_CONNECT_ON_START: bool = False
+    RFID_AUTO_SCAN_ON_START: bool = False
+
     # 安全配置
     SECRET_KEY: str = "your-secret-key-here"
 

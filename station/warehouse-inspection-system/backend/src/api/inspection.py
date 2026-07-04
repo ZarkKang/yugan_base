@@ -13,13 +13,15 @@ from ..db.database import get_db
 from ..models.models import (
     Drone, Task, Waypoint, ImageRecord,
     InventoryItem, InspectionReport, TaskStatus,
-    InspectionRecord, InspectionStatus, Shelf,
+    InspectionRecord, InspectionStatus, Shelf, User,
+    InspectionSession, VideoData, RFIDData,
 )
 from ..schemas.schemas import (
     InspectionRecordCreate, InspectionRecordUpdate,
     InspectionRecordResponse, APIResponse, PaginatedResponse,
     TaskCreate, TaskResponse, TaskUpdate,
 )
+from .auth import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["巡检管理"])
@@ -69,7 +71,8 @@ def list_records(
     status: Optional[str] = None,
     drone_id: Optional[int] = None,
     task_code: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """获取巡检记录列表"""
     query = db.query(InspectionRecord)
@@ -317,7 +320,7 @@ def complete_task(task_code: str, payload: dict, db: Session = Depends(get_db)):
 # ========== 任务管理 (基站操作员使用) ==========
 
 @router.post("/inspection/tasks", response_model=APIResponse)
-def create_task(task: TaskCreate, db: Session = Depends(get_db)):
+def create_task(task: TaskCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     创建巡检任务（基站操作员使用）。
 
@@ -351,7 +354,8 @@ def list_tasks(
     status: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """获取任务列表"""
     try:
@@ -416,7 +420,7 @@ def list_tasks(
 
 
 @router.get("/inspection/tasks/{task_code}", response_model=APIResponse)
-def get_task(task_code: str, db: Session = Depends(get_db)):
+def get_task(task_code: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """获取任务详情"""
     try:
         t = db.query(Task).filter(Task.task_code == task_code).first()
@@ -466,6 +470,12 @@ def update_task(task_code: str, update: TaskUpdate, db: Session = Depends(get_db
         t.status = update.status
     if update.drone_id is not None:
         t.drone_id = update.drone_id
+    if update.session_id is not None:
+        t.session_id = update.session_id
+    if update.start_time is not None:
+        t.start_time = update.start_time
+    if update.end_time is not None:
+        t.end_time = update.end_time
     db.commit()
 
     return APIResponse(success=True, message="更新成功")
@@ -649,3 +659,172 @@ def _generate_report_for_task(task_code: str, db: Session) -> InspectionReport:
 
     logger.info(f"报告已生成: {report.id} (任务 {task_code}, 准确率 {accuracy}%)")
     return report
+
+
+# ========== 巡检历史会话 (树干 → 树枝 → 树叶) ==========
+
+@router.post("/inspection/sessions", response_model=APIResponse)
+def create_session(
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """创建巡检历史会话(树干)
+
+    Body: {"container_code": "...", "task_code": "TASK001"(可选)}
+    """
+    import os as _os
+    session = InspectionSession(
+        session_code=f"SES_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{_os.urandom(3).hex()}",
+        container_code=payload.get("container_code"),
+        status="pending",
+    )
+    if payload.get("task_code"):
+        task = db.query(Task).filter(Task.task_code == payload["task_code"]).first()
+        if task:
+            task.session_id = None  # 会在下面设置
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    if payload.get("task_code"):
+        task = db.query(Task).filter(Task.task_code == payload["task_code"]).first()
+        if task:
+            task.session_id = session.id
+            db.commit()
+    return APIResponse(success=True, message="会话已创建", data={"session_id": session.id, "session_code": session.session_code})
+
+
+@router.get("/inspection/sessions", response_model=APIResponse)
+def list_sessions(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """列出巡检历史会话(树干列表)"""
+    query = db.query(InspectionSession).order_by(InspectionSession.created_at.desc())
+    total = query.count()
+    sessions = query.offset(offset).limit(limit).all()
+    return APIResponse(success=True, data={
+        "total": total,
+        "items": [
+            {
+                "id": s.id,
+                "session_code": s.session_code,
+                "container_code": s.container_code,
+                "start_time": s.start_time.isoformat() if s.start_time else None,
+                "end_time": s.end_time.isoformat() if s.end_time else None,
+                "abnormal_count": s.abnormal_count,
+                "total_waypoints": s.total_waypoints,
+                "total_records": s.total_records,
+                "status": s.status,
+                "extra_data": s.extra_data,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+            for s in sessions
+        ],
+    })
+
+
+@router.get("/inspection/sessions/{session_id}", response_model=APIResponse)
+def get_session_tree(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取巡检历史会话的完整树形结构
+
+    结构: Session(树干) → Task[](树枝) → {VideoData, RFIDData, InspectionRecord, ImageRecord}(树叶)
+    """
+    session = db.query(InspectionSession).filter(InspectionSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    tasks = db.query(Task).filter(Task.session_id == session_id).all()
+    task_codes = [t.task_code for t in tasks]
+
+    # 批量查询树叶数据
+    videos = db.query(VideoData).filter(VideoData.task_code.in_(task_codes)).all() if task_codes else []
+    rfids = db.query(RFIDData).filter(RFIDData.task_code.in_(task_codes)).all() if task_codes else []
+    records = db.query(InspectionRecord).filter(InspectionRecord.task_code.in_(task_codes)).all() if task_codes else []
+    images = db.query(ImageRecord).filter(ImageRecord.task_id.in_(task_codes)).all() if task_codes else []
+
+    # 按 task_code 分组
+    videos_by_task = {}
+    for v in videos:
+        videos_by_task.setdefault(v.task_code, []).append({
+            "id": v.id, "file_name": v.file_name, "file_path": v.file_path,
+            "file_size": v.file_size, "duration": v.duration,
+            "frame_extracted": v.frame_extracted, "frame_count": v.frame_count,
+            "qr_recognized": v.qr_recognized,
+            "qr_codes": json.loads(v.qr_codes_json) if v.qr_codes_json else [],
+            "processing_status": v.processing_status,
+            "waypoint_id": v.waypoint_id,
+            "captured_at": v.captured_at.isoformat() if v.captured_at else None,
+        })
+    rfids_by_task = {}
+    for r in rfids:
+        rfids_by_task.setdefault(r.task_code, []).append({
+            "id": r.id, "rfid_tag": r.rfid_tag,
+            "signal_strength": r.signal_strength,
+            "waypoint_id": r.waypoint_id,
+            "detected_at": r.detected_at.isoformat() if r.detected_at else None,
+        })
+    records_by_task = {}
+    for rec in records:
+        records_by_task.setdefault(rec.task_code, []).append({
+            "id": rec.id, "record_code": rec.record_code,
+            "status": rec.status.value if hasattr(rec.status, 'value') else str(rec.status),
+            "qr_code_data": rec.qr_code_data,
+            "rfid_data": rec.rfid_data,
+            "qr_rfid_match": rec.qr_rfid_match,
+            "cross_validation": json.loads(rec.cross_validation_json) if rec.cross_validation_json else None,
+            "abnormal_tags": json.loads(rec.abnormal_tags_json) if rec.abnormal_tags_json else None,
+            "mismatch_reason": rec.mismatch_reason,
+            "waypoint_id": rec.waypoint_id,
+            "inspection_time": rec.inspection_time.isoformat() if rec.inspection_time else None,
+        })
+    images_by_task = {}
+    for img in images:
+        images_by_task.setdefault(img.task_id, []).append({
+            "id": img.id, "file_name": img.file_name,
+            "qr_data": img.qr_data, "status": img.status,
+            "inventory_status": img.inventory_status,
+            "waypoint_id": img.waypoint_id,
+        })
+
+    # 组装树形结构
+    task_tree = []
+    for t in tasks:
+        task_tree.append({
+            "task_code": t.task_code,
+            "task_name": t.task_name,
+            "status": t.status.value if hasattr(t.status, 'value') else str(t.status),
+            "start_time": t.start_time.isoformat() if t.start_time else None,
+            "end_time": t.end_time.isoformat() if t.end_time else None,
+            "total_records": t.total_records,
+            "abnormal_records": t.abnormal_records,
+            "leaves": {
+                "videos": videos_by_task.get(t.task_code, []),
+                "rfid_data": rfids_by_task.get(t.task_code, []),
+                "inspection_records": records_by_task.get(t.task_code, []),
+                "image_records": images_by_task.get(t.task_code, []),
+            },
+        })
+
+    return APIResponse(success=True, data={
+        "session": {
+            "id": session.id,
+            "session_code": session.session_code,
+            "container_code": session.container_code,
+            "start_time": session.start_time.isoformat() if session.start_time else None,
+            "end_time": session.end_time.isoformat() if session.end_time else None,
+            "abnormal_count": session.abnormal_count,
+            "total_waypoints": session.total_waypoints,
+            "total_records": session.total_records,
+            "status": session.status,
+            "extra_data": session.extra_data,
+            "created_at": session.created_at.isoformat() if session.created_at else None,
+        },
+        "tasks": task_tree,
+    })

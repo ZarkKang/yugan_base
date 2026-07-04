@@ -65,10 +65,19 @@ app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(Exception, global_exception_handler)
 
-# CORS配置
+# CORS配置 - 从环境变量读取白名单
+import json as _json
+_cors_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+_env_cors = os.environ.get("CORS_ORIGINS")
+if _env_cors:
+    try:
+        _cors_origins = _json.loads(_env_cors)
+    except (_json.JSONDecodeError, TypeError):
+        pass
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

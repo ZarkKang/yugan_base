@@ -109,3 +109,6 @@ warehouse-inspection-system/backend/storage/
 *.exe
 *.class
 *.dex
+Drone_Of_Inspection-patrol/
+*.deb
+*.backup

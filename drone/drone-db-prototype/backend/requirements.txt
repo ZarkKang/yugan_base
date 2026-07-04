@@ -12,6 +12,7 @@ alembic==1.13.1
 pyzbar==0.1.9
 opencv-python==4.8.1.78
 pillow==10.1.0
+numpy==1.26.4  # OpenCV requires numpy 1.26 (incompatible with numpy 2.x)
 httpx==0.25.2
 websockets==12.0
 email-validator==2.1.0

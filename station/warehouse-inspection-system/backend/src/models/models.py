@@ -103,23 +103,34 @@ class Drone(Base):
 
 
 class Shelf(Base):
-    """货架表"""
+    """货架表
+
+    货架数据由无人机端 shelves.yaml 推送同步，基站端不再手动创建。
+    archived_at 用于软删除：无人机端删除货架后，基站端标记归档时间，
+    保留历史数据关联，允许 shelf_code 在归档后被重新使用。
+    """
     __tablename__ = "shelves"
 
     id = Column(Integer, primary_key=True, index=True)
-    shelf_code = Column(String(50), unique=True, index=True, nullable=False, comment="货架编号")
+    # 非唯一索引：允许已归档(archived_at IS NOT NULL)的 shelf_code 被重新使用
+    shelf_code = Column(String(50), index=True, nullable=False, comment="货架编号(来自无人机端shelf_id)")
     shelf_name = Column(String(100), comment="货架名称/位置描述")
     zone = Column(String(50), comment="区域")
     position_x = Column(Float, comment="位置X坐标")
     position_y = Column(Float, comment="位置Y坐标")
     position_z = Column(Float, comment="位置Z坐标")
+    yaw_rad = Column(Float, nullable=True, comment="偏航角(弧度,来自无人机端)")
+    arrival_radius_m = Column(Float, nullable=True, comment="到达半径(米,来自无人机端)")
+    dwell_time_s = Column(Float, nullable=True, comment="停留时间(秒,来自无人机端)")
     rows = Column(Integer, default=1, comment="行数")
     columns = Column(Integer, default=1, comment="列数")
     levels = Column(Integer, default=1, comment="层数")
     qr_code = Column(String(200), nullable=True, comment="关联二维码")
-    status = Column(String(20), default="normal", comment="状态: normal/damaged/maintenance")
+    status = Column(String(20), default="normal", comment="状态: normal/damaged/maintenance/archived")
+    archived_at = Column(DateTime, nullable=True, comment="归档时间(无人机端删除后标记)")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    last_synced_at = Column(DateTime, nullable=True, comment="最后一次无人机同步时间")
 
     # 关系
     inspection_records = relationship("InspectionRecord", back_populates="shelf")
@@ -148,15 +159,60 @@ class RFIDTag(Base):
     inspection_records = relationship("InspectionRecord", back_populates="rfid_tag")
 
 
+class InspectionSession(Base):
+    """巡检历史会话 — 树干
+
+    聚合多次巡检任务（Task），作为巡检历史的顶层容器。
+    结构：Session(树干) → Task(树枝) → VideoData/RFIDData/ImageRecord/InspectionRecord(树叶)
+    一对多关系：一个 Session 可包含多个 Task（通过 Task.session_id 反向关联）。
+
+    扩展设计：extra_data JSON 字段供后续添加字段时使用，
+    新增字段的旧数据为 NULL 不会导致结构变化错误。
+    """
+    __tablename__ = "inspection_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_code = Column(String(50), unique=True, index=True, nullable=False, comment="会话编号")
+    container_code = Column(String(100), nullable=True, comment="货柜号")
+
+    # 时间
+    start_time = Column(DateTime, nullable=True, comment="开始时间")
+    end_time = Column(DateTime, nullable=True, comment="结束时间")
+
+    # 统计
+    abnormal_count = Column(Integer, default=0, comment="异常数")
+    total_waypoints = Column(Integer, default=0, comment="总航点数")
+    total_records = Column(Integer, default=0, comment="总记录数")
+
+    # 状态
+    status = Column(String(20), default="pending", comment="状态: pending/running/completed/abnormal")
+
+    # 扩展字段（供后续添加字段时使用，旧数据不受结构变化影响）
+    extra_data = Column(JSON, nullable=True, comment="扩展数据JSON（后续字段扩展用）")
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # 关系（一对多：一个会话包含多个任务）
+    tasks = relationship("Task", back_populates="inspection_session", foreign_keys="Task.session_id")
+
+
 class InspectionRecord(Base):
-    """巡检记录表"""
+    """巡检记录表 — 树叶层
+
+    航点级巡检快照，关联到 Task 和 Waypoint。
+    """
     __tablename__ = "inspection_records"
 
     id = Column(Integer, primary_key=True, index=True)
-    record_code = Column(String(50), unique=True, index=True, nullable=False, comment="记录编号")
+    record_code = Column(String(128), unique=True, index=True, nullable=False, comment="记录编号")
     drone_id = Column(Integer, ForeignKey("drones.id"), nullable=False, comment="无人机ID")
     shelf_id = Column(Integer, ForeignKey("shelves.id"), nullable=True, comment="货架ID")
     rfid_tag_id = Column(Integer, ForeignKey("rfid_tags.id"), nullable=True, comment="RFID标签ID")
+
+    # 树叶关联（关联到树枝 Task 和 Waypoint）
+    task_code = Column(String(50), ForeignKey("tasks.task_code"), nullable=True, comment="关联任务编号")
+    waypoint_id = Column(String(64), ForeignKey("waypoints.id"), nullable=True, comment="关联航点ID")
 
     # 巡检数据
     status = Column(SQLEnum(InspectionStatus), default=InspectionStatus.PENDING, comment="巡检状态")
@@ -175,6 +231,11 @@ class InspectionRecord(Base):
     is_matched = Column(Boolean, nullable=True, comment="数据是否匹配")
     mismatch_reason = Column(Text, nullable=True, comment="不匹配原因")
 
+    # QR×RFID 交叉校验结果（Q18: RFID有QR无 / QR有RFID无 均标记异常）
+    qr_rfid_match = Column(Boolean, nullable=True, comment="QR与RFID交叉校验是否通过")
+    cross_validation_json = Column(Text, nullable=True, comment="交叉校验明细JSON: {qr_only:[], rfid_only:[], matched:[]}")
+    abnormal_tags_json = Column(Text, nullable=True, comment="异常标签明细JSON")
+
     # 元数据
     inspection_time = Column(DateTime, nullable=True, comment="巡检时间")
     duration_ms = Column(Integer, nullable=True, comment="处理耗时(毫秒)")
@@ -184,10 +245,15 @@ class InspectionRecord(Base):
     drone = relationship("Drone", back_populates="inspection_records")
     shelf = relationship("Shelf", back_populates="inspection_records")
     rfid_tag = relationship("RFIDTag", back_populates="inspection_records")
+    task = relationship("Task", back_populates="inspection_records", foreign_keys=[task_code])
+    waypoint = relationship("Waypoint", foreign_keys=[waypoint_id])
 
 
 class Task(Base):
-    """巡检任务表"""
+    """巡检任务表 — 树枝层
+
+    属于某个 InspectionSession（树干），下挂 Waypoint/ImageRecord/VideoData/RFIDData（树叶）。
+    """
     __tablename__ = "tasks"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -204,6 +270,9 @@ class Task(Base):
 
     # 分配信息
     drone_id = Column(Integer, ForeignKey("drones.id"), nullable=True, comment="分配的无人机")
+
+    # 树枝关联（关联到树干 InspectionSession）
+    session_id = Column(Integer, ForeignKey("inspection_sessions.id"), nullable=True, comment="关联巡检历史会话")
 
     # 执行结果
     start_time = Column(DateTime, nullable=True, comment="开始时间")
@@ -227,6 +296,10 @@ class Task(Base):
     drone = relationship("Drone", back_populates="tasks")
     waypoints = relationship("Waypoint", back_populates="task", cascade="all, delete-orphan")
     image_records = relationship("ImageRecord", back_populates="task", cascade="all, delete-orphan")
+    video_data = relationship("VideoData", back_populates="task", foreign_keys="VideoData.task_code")
+    rfid_data = relationship("RFIDData", back_populates="task", foreign_keys="RFIDData.task_code")
+    inspection_records = relationship("InspectionRecord", back_populates="task", foreign_keys="InspectionRecord.task_code")
+    inspection_session = relationship("InspectionSession", back_populates="tasks", foreign_keys="Task.session_id")
 
 
 # ========== 航点表 ==========
@@ -465,7 +538,11 @@ class SKU(Base):
 
 # ========== 视频数据表 ==========
 class VideoData(Base):
-    """无人机视频数据表"""
+    """无人机视频数据表 — 树叶层
+
+    属于某个 Task（树枝），可关联到 Waypoint。
+    用于抽帧后 QR 识别与库存比对的数据源。
+    """
     __tablename__ = "video_data"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -486,14 +563,28 @@ class VideoData(Base):
 
     # 关联
     drone_id = Column(Integer, ForeignKey("drones.id"), nullable=True, comment="关联无人机")
+    # 树叶关联（关联到树枝 Task 和 Waypoint）
+    task_code = Column(String(50), ForeignKey("tasks.task_code"), nullable=True, comment="关联任务编号")
+    waypoint_id = Column(String(64), ForeignKey("waypoints.id"), nullable=True, comment="关联航点ID")
     captured_at = Column(DateTime, nullable=True, comment="拍摄时间")
+
+    # 抽帧/识别状态
+    frame_extracted = Column(Boolean, default=False, comment="是否已完成抽帧")
+    frame_count = Column(Integer, default=0, comment="抽帧总数")
+    qr_recognized = Column(Boolean, default=False, comment="是否已完成QR识别")
+    qr_codes_json = Column(Text, nullable=True, comment="视频中识别到的二维码JSON列表")
+    processing_status = Column(String(20), default="pending", comment="处理状态: pending/extracting/recognizing/completed/failed")
+    processing_error = Column(Text, nullable=True, comment="处理失败原因")
 
     # 元数据
     description = Column(Text, nullable=True, comment="备注")
     created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     # 关系
     drone = relationship("Drone", back_populates="video_data")
+    task = relationship("Task", foreign_keys=[task_code])
+    waypoint = relationship("Waypoint", foreign_keys=[waypoint_id])
 
 
 # ========== 图片数据表 ==========
@@ -530,11 +621,16 @@ class ImageData(Base):
 
 # ========== 无人机RFID读取数据表 ==========
 class RFIDData(Base):
-    """无人机RFID读取数据 — 无人机飞行中读取到的RFID标签记录"""
+    """无人机RFID读取数据 — 树叶层
+
+    无人机飞行中读取到的RFID标签记录，属于某个 Task（树枝），可关联到 Waypoint。
+    rfid_tag 去除 unique 约束：同一标签在不同巡检/航点会被多次读取。
+    """
     __tablename__ = "rfid_data"
 
     id = Column(Integer, primary_key=True, index=True)
-    rfid_tag = Column(String(100), unique=True, index=True, nullable=False, comment="RFID标签ID")
+    # 非唯一索引：同一EPC可在多次巡检/航点重复读取
+    rfid_tag = Column(String(100), index=True, nullable=False, comment="RFID标签ID(EPC)")
     tag_type = Column(String(50), nullable=True, comment="标签类型")
 
     # 位置信息
@@ -547,6 +643,9 @@ class RFIDData(Base):
 
     # 关联无人机
     drone_id = Column(Integer, ForeignKey("drones.id"), nullable=True, comment="读取无人机")
+    # 树叶关联（关联到树枝 Task 和 Waypoint）
+    task_code = Column(String(50), ForeignKey("tasks.task_code"), nullable=True, comment="关联任务编号")
+    waypoint_id = Column(String(64), ForeignKey("waypoints.id"), nullable=True, comment="关联航点ID")
 
     # 检测时间
     detected_at = Column(DateTime, nullable=True, comment="检测时间")
@@ -558,6 +657,8 @@ class RFIDData(Base):
 
     # 关系
     drone = relationship("Drone", back_populates="rfid_data")
+    task = relationship("Task", foreign_keys=[task_code])
+    waypoint = relationship("Waypoint", foreign_keys=[waypoint_id])
 
 
 # ========== 无人机图传设备配置表 ==========

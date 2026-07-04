@@ -1,4 +1,3 @@
-
 name: yugan-intelligence
 
 services:
@@ -11,7 +10,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: warehouse_inspection
     ports:
-      - "5432:5432"
+      - "5434:5432"  # 外部端口5434，避免与系统PostgreSQL(5432/5433)冲突
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
@@ -21,12 +20,18 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
     image: redis:7-alpine
     container_name: yugan-redis
     ports:
-      - "6379:6379"
+      - "6380:6379"  # 外部端口6380，避免与系统Redis冲突
     volumes:
       - redis-data:/data
     networks:
@@ -36,6 +41,12 @@ services:
       interval: 5s
       timeout: 3s
       retries: 3
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ─ 后端服务 ──────────────────────────────
   # 无人机数据系统后端
@@ -43,29 +54,64 @@ services:
     build:
       context: ./drone/drone-db-prototype/backend
       dockerfile: Dockerfile
+    container_name: yugan-drone-db
     ports:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/warehouse_inspection
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - DEBUG=${DEBUG:-false}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - ./drone/drone-db-prototype/backend:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      - drone-uploads:/app/uploads
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     networks:
       - yugan-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # 仓库巡检系统后端
   warehouse:
     build:
       context: ./station/warehouse-inspection-system/backend
       dockerfile: Dockerfile
+    container_name: yugan-warehouse
     ports:
       - "8001:8000"
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/warehouse_inspection
       - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - DEBUG=${DEBUG:-false}
+      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}
+      - RFID_DEVICE=${RFID_DEVICE:-/dev/ttyUSB0}
+      - RFID_BAUD_RATE=${RFID_BAUD_RATE:-115200}
+      # 连接监控配置 - Docker容器内网络
+      - BACKEND_API_HOST=drone-db
+      - BACKEND_API_PORT=8000
+      - API_GATEWAY_HOST=api-gateway
+      - API_GATEWAY_PORT=8080
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,37 +120,113 @@ services:
     volumes:
       - ./station/warehouse-inspection-system/backend:/app
       - ./station/warehouse-inspection-system/storage:/app/storage
+      - warehouse-logs:/app/logs
     devices:
-      # Linux 串口设备映射
-      - "/dev/ttyUSB0:/dev/ttyUSB0"
-      - "/dev/ttyUSB1:/dev/ttyUSB1"
-      - "/dev/ttyACM0:/dev/ttyACM0"
       # WSL COM端口映射 (Windows COM7 → WSL /dev/ttyS6)
+      # 注意：Linux串口设备（ttyUSB0/1/ACM0）不存在时不映射，避免启动失败
       - "/dev/ttyS6:/dev/ttyS6"
-    privileged: true
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    # 生产安全配置：移除privileged，仅添加串口所需权限
+    privileged: false
+    cap_add:
+      - SYS_RAWIO  # 串口通信所需权限
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000
     networks:
       - yugan-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # API网关
   api-gateway:
     build:
       context: ./app/api-gateway
       dockerfile: Dockerfile
+    container_name: yugan-api-gateway
     ports:
       - "8080:8080"
     environment:
       - IS_DOCKER=true
       - DRONE_DB_URL=http://drone-db:8000
       - WAREHOUSE_URL=http://warehouse:8000
+      - DEBUG=${DEBUG:-false}
     depends_on:
-      - drone-db
-      - warehouse
+      drone-db:
+        condition: service_healthy
+      warehouse:
+        condition: service_healthy
     volumes:
       - ./app/api-gateway:/app
-    command: uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+      # 前端目录挂载 (子页面路由用, 只读)
+      - ./station/warehouse-inspection-system/frontend:/station/warehouse-inspection-system/frontend:ro
+      - ./drone/drone-db-prototype/frontend:/drone/drone-db-prototype/frontend:ro
+      - ./app:/app_root:ro
+    command: uvicorn main:app --host 0.0.0.0 --port 8080
     networks:
       - yugan-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─ 前端服务 ──────────────────────────────
+  # HTTP服务器 (端口3000，提供前端静态文件访问)
+  frontend:
+    image: python:3.11-slim
+    container_name: yugan-frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      # 保持完整路径结构，与app/index.html中的跳转路径一致
+      - ./app:/app
+      - ./app/root-index.html:/index.html:ro
+      - ./drone/drone-db-prototype/frontend:/drone/drone-db-prototype/frontend
+      - ./station/warehouse-inspection-system/frontend:/station/warehouse-inspection-system/frontend
+    working_dir: /
+    command: python3 -m http.server 3000 --bind 0.0.0.0 --directory /
+    networks:
+      - yugan-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
 
 networks:
   yugan-network:
@@ -113,3 +235,5 @@ networks:
 volumes:
   postgres-data:
   redis-data:
+  drone-uploads:
+  warehouse-logs:

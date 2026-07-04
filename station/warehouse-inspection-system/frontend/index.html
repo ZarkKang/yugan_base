@@ -328,7 +328,7 @@
 <body>
 
 <!-- ═══════════════════ APP ═══════════════════ -->
-<!-- 统一认证：无 token 时自动跳转到 ../login.html -->
+<!-- 开发模式：跳过登录验证，直接进入系统 -->
 <div id="app-screen">
 <div class="app-shell">
 
@@ -355,6 +355,7 @@
         <div class="nav-section">系统</div>
         <div class="nav-item" data-page="system"><span class="icon">⚙</span> 系统状态</div>
         <div class="nav-item" data-page="drone_integration"><span class="icon">◉</span> 无人机整合</div>
+        <div class="nav-item" data-page="rfid_dashboard"><span class="icon">▦</span> RFID看板</div>
         <div class="nav-item" data-page="rfid_settings"><span class="icon">⊞</span> RFID设置</div>
     </nav>
     <div class="sidebar-footer">
@@ -460,9 +461,9 @@ async function api(url, opts={}) {
     if (TOKEN) h['Authorization'] = `Bearer ${TOKEN}`;
     const res = await fetch(url, { ...opts, headers: h });
     if (res.status === 401) { 
-        // 统一认证过期，跳转到登录页
-        window.location.href = '/login.html';
-        throw new Error('登录已过期，请重新登录'); 
+        // 开发模式：不跳转登录页，仅提示
+        console.warn('[api] 401 未授权，开发模式下忽略');
+        throw new Error('请求未授权（开发模式）'); 
     }
     if (!res.ok) {
         const e = await res.json().catch(()=>({message:res.statusText}));
@@ -500,8 +501,9 @@ async function handleLogin(e) {
         const data = await res.json();
         TOKEN = data.data?.access_token || data.access_token;
         USER = data.data?.user || data.user || { username: u, role: 'admin', full_name: u };
-        const userData = USER ? `&user=${encodeURIComponent(JSON.stringify(USER))}` : '';
-        window.location.href = `/app/index.html?token=${encodeURIComponent(TOKEN)}${userData}`;
+        // 开发模式：跳转到系统选择页（不带token）
+        const isHttp = window.location.protocol.startsWith('http');
+        window.location.href = isHttp ? '/app/index.html' : '../../app/index.html';
     } catch(ex) { err.textContent = ex.message; err.style.display = 'block'; }
     finally { btn.disabled = false; btn.textContent = '登 录'; }
 }
@@ -554,7 +556,8 @@ let currentPage = '';
 const pageTitles = {
     dashboard:'实时看板', drones:'无人机管理', tasks:'巡检任务', records:'巡检记录', inbound:'入库管理',
     shelves:'货架管理', skus:'SKU管理', images:'图像管理', videos:'视频管理',
-    gateway:'数据网关', system:'系统状态', rfid_settings:'RFID设置', drone_integration:'无人机整合'
+    gateway:'数据网关', system:'系统状态', rfid_settings:'RFID设置', drone_integration:'无人机整合',
+    rfid_dashboard:'RFID看板'
 };
 
 function navigate(name) {
@@ -562,6 +565,11 @@ function navigate(name) {
     if (window._dronePollTimer && name !== 'drones') {
         clearInterval(window._dronePollTimer);
         window._dronePollTimer = null;
+    }
+    // 切换页面时清理 RFID 看板轮询 timer
+    if (window._rfidDashTimer && name !== 'rfid_dashboard') {
+        clearInterval(window._rfidDashTimer);
+        window._rfidDashTimer = null;
     }
     currentPage = name;
     // 更新 URL hash 以支持刷新恢复
@@ -1023,7 +1031,7 @@ async function loadImages() {
         document.getElementById('img-count').textContent = `${allImages.length} 张`;
         document.getElementById('img-grid').innerHTML = allImages.length ? allImages.map(img => `
             <div class="img-card" onclick="viewImageDetail('${img.image_id}')">
-                <img class="thumb" src="${API}/images/${img.image_id}/file" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22140%22><rect fill=%22%231a2332%22 width=%22200%22 height=%22140%22/><text fill=%22%235f7d94%22 x=%22100%22 y=%2275%22 text-anchor=%22middle%22 font-size=%2212%22>无预览</text></svg>'">
+                <img class="thumb" src="${API}/images/${img.image_id}/file?token=${TOKEN}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22140%22><rect fill=%22%231a2332%22 width=%22200%22 height=%22140%22/><text fill=%22%235f7d94%22 x=%22100%22 y=%2275%22 text-anchor=%22middle%22 font-size=%2212%22>无预览</text></svg>'">
                 <div class="meta"><div class="status-row">${badge(img.status)} ${badge(img.inventory_status||'normal')}</div><div class="sku">${img.qr_data||'未识别'}</div></div>
             </div>`).join('') : '<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:24px;">暂无图像（执行巡检任务后上传）</div>';
     } catch(e) { document.getElementById('img-grid').innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:24px;">加载失败: ${e.message}</div>`; }
@@ -1035,7 +1043,7 @@ async function viewImageDetail(id) {
         const d = img?.data || img;
         document.getElementById('image-detail-content').innerHTML = `
             <div style="display:flex;gap:16px;flex-wrap:wrap;">
-                <img src="${API}/images/${id}/file" style="max-width:300px;max-height:260px;border-radius:var(--radius);" onerror="this.style.display='none'">
+                <img src="${API}/images/${id}/file?token=${TOKEN}" style="max-width:300px;max-height:260px;border-radius:var(--radius);" onerror="this.style.display='none'">
                 <div style="flex:1;min-width:200px;font-size:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px;align-content:start;">
                     <div><strong>ID:</strong> <span class="mono">${d.image_id}</span></div><div><strong>状态:</strong> ${badge(d.recognition_status||d.status)}</div>
                     <div><strong>图像质量:</strong> ${d.image_quality?.toFixed(1)||'-'}</div><div><strong>置信度:</strong> ${d.confidence? (d.confidence*100).toFixed(0)+'%':'-'}</div>
@@ -1093,7 +1101,7 @@ async function loadVideos() {
             <div class="img-card" style="cursor:default;">
                 <div style="height:140px;display:flex;align-items:center;justify-content:center;background:var(--bg);font-size:32px;">▶</div>
                 <div class="meta"><div class="status-row"><span>${v.file_name}</span></div><div style="font-size:10px;color:var(--muted);">${(v.file_size/1024/1024).toFixed(1)}MB</div>
-                <div style="display:flex;gap:4px;margin-top:4px;"><a href="${API}/videos/${v.video_id}/file" target="_blank" class="btn btn-outline btn-sm" style="flex:1;text-align:center;">下载</a><button class="btn btn-danger btn-sm" onclick="deleteVideo('${v.video_id}')">删除</button></div></div>
+                <div style="display:flex;gap:4px;margin-top:4px;"><a href="${API}/videos/${v.video_id}/file?token=${TOKEN}" target="_blank" class="btn btn-outline btn-sm" style="flex:1;text-align:center;">下载</a><button class="btn btn-danger btn-sm" onclick="deleteVideo('${v.video_id}')">删除</button></div></div>
             </div>`).join('') : '<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:24px;">暂无视频（执行巡检任务后上传）</div>';
     } catch(e) { document.getElementById('vid-grid').innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:24px;">加载失败: ${e.message}</div>`; }
 }
@@ -1186,6 +1194,204 @@ async function loadSystem() {
 
 async function reconnectSystem() {
     try { await api(`${API}/system/reconnect`,{method:'POST'}); toast('已重新检测'); loadSystem(); } catch(ex) { toast(ex.message,'error'); }
+}
+
+// ═══════════════════ PAGE: RFID DASHBOARD ═══════════════════
+let _rfidDashTimer = null;
+let _rfidDashLastTs = 0;        // 增量轮询游标（read_time Unix 秒）
+let _rfidDashEvents = [];       // 本地缓存的事件列表（最新在顶）
+
+async function render_rfid_dashboard(el) {
+    el.innerHTML = `
+        <div class="stat-row" id="rfd-stats">
+            <div class="stat-item"><div class="stat-label">连接状态</div><div class="stat-value c-red" id="rfd-connected">检测中...</div></div>
+            <div class="stat-item"><div class="stat-label">扫描模式</div><div class="stat-value" id="rfd-mode">-</div></div>
+            <div class="stat-item"><div class="stat-label">扫描事件总数</div><div class="stat-value" id="rfd-total">0</div></div>
+            <div class="stat-item"><div class="stat-label">唯一标签数</div><div class="stat-value c-green" id="rfd-unique">0</div></div>
+            <div class="stat-item"><div class="stat-label">最近事件</div><div class="stat-value" id="rfd-latest" style="font-size:12px;">-</div></div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+            <button class="btn btn-primary" id="rfd-btn-single" onclick="rfidDashSingle()">单次扫描</button>
+            <button class="btn btn-success" id="rfd-btn-start" onclick="rfidDashAuto(true)">启动自动扫描</button>
+            <button class="btn btn-outline" id="rfd-btn-stop" onclick="rfidDashAuto(false)" style="display:none;">停止自动扫描</button>
+            <button class="btn btn-ghost btn-sm" onclick="rfidDashRefresh()">立即刷新</button>
+            <button class="btn btn-ghost btn-sm" onclick="rfidDashClearHistory()">清空历史</button>
+            <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;margin-left:auto;">
+                <input type="checkbox" id="rfd-autoscroll" checked> 自动滚动
+            </label>
+            <span style="font-size:12px;color:var(--muted);" id="rfd-time"></span>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <span>实时扫描事件</span>
+                <span class="count" id="rfd-count">0 条</span>
+            </div>
+            <div style="overflow-x:auto;max-height:560px;overflow-y:auto;" id="rfd-table-wrap">
+                <table>
+                    <thead style="position:sticky;top:0;background:var(--surface2);z-index:1;">
+                        <tr>
+                            <th style="width:140px;">扫描时间</th>
+                            <th>EPC (标签ID)</th>
+                            <th style="width:90px;">RSSI</th>
+                            <th style="width:80px;">PC</th>
+                            <th style="width:80px;">CRC</th>
+                            <th style="width:90px;">模式</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rfd-tbody">
+                        <tr class="empty-row"><td colspan="6">暂无扫描事件</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="panel" style="margin-top:12px;">
+            <div class="panel-header"><span>分类统计</span></div>
+            <div style="padding:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;" id="rfd-breakdown">
+                <div style="color:var(--muted);font-size:13px;">加载中...</div>
+            </div>
+        </div>`;
+
+    // 重置增量游标，首次全量拉取
+    _rfidDashLastTs = 0;
+    _rfidDashEvents = [];
+    await rfidDashRefresh();
+    // 启动 1.5s 增量轮询
+    if (_rfidDashTimer) clearInterval(_rfidDashTimer);
+    _rfidDashTimer = setInterval(rfidDashPoll, 1500);
+}
+
+async function rfidDashRefresh() {
+    await Promise.all([rfidDashLoadStats(), rfidDashLoadHistory(true)]);
+}
+
+async function rfidDashPoll() {
+    // 增量轮询：仅拉取 since=_rfidDashLastTs 的新事件
+    await rfidDashLoadStats();
+    await rfidDashLoadHistory(false);
+}
+
+async function rfidDashLoadStats() {
+    try {
+        const r = await api(`${API}/rfid/scan/stats`);
+        const d = r.data || {};
+        const connected = d.connected;
+        const scanning = d.scanning;
+        document.getElementById('rfd-connected').textContent = connected ? '已连接' : '未连接';
+        document.getElementById('rfd-connected').className = 'stat-value ' + (connected ? 'c-green' : 'c-red');
+        document.getElementById('rfd-mode').textContent = scanning ? '自动扫描中' : (connected ? '已就绪' : '未连接');
+        document.getElementById('rfd-mode').className = 'stat-value ' + (scanning ? 'c-green' : '');
+        document.getElementById('rfd-total').textContent = d.total_events || 0;
+        document.getElementById('rfd-unique').textContent = d.unique_tags || 0;
+        document.getElementById('rfd-latest').textContent = d.latest_event_time
+            ? new Date(d.latest_event_time * 1000).toLocaleTimeString('zh-CN', {hour12:false})
+            : '-';
+        // 控制按钮可见性
+        document.getElementById('rfd-btn-start').style.display = scanning ? 'none' : '';
+        document.getElementById('rfd-btn-stop').style.display = scanning ? '' : 'none';
+        // 分类统计
+        const bd = document.getElementById('rfd-breakdown');
+        bd.innerHTML = `
+            <div style="padding:10px;background:var(--bg);border-radius:6px;"><div style="font-size:11px;color:var(--muted);">自动扫描</div><div style="font-size:18px;color:var(--success);font-weight:600;">${d.auto_count||0}</div></div>
+            <div style="padding:10px;background:var(--bg);border-radius:6px;"><div style="font-size:11px;color:var(--muted);">单次扫描</div><div style="font-size:18px;color:var(--primary);font-weight:600;">${d.single_count||0}</div></div>
+            <div style="padding:10px;background:var(--bg);border-radius:6px;"><div style="font-size:11px;color:var(--muted);">手动触发</div><div style="font-size:18px;color:var(--warning);font-weight:600;">${d.manual_count||0}</div></div>
+            <div style="padding:10px;background:var(--bg);border-radius:6px;"><div style="font-size:11px;color:var(--muted);">总事件数</div><div style="font-size:18px;font-weight:600;">${d.total_events||0}</div></div>
+            <div style="padding:10px;background:var(--bg);border-radius:6px;"><div style="font-size:11px;color:var(--muted);">唯一标签</div><div style="font-size:18px;color:var(--success);font-weight:600;">${d.unique_tags||0}</div></div>`;
+    } catch (e) { /* ignore */ }
+}
+
+async function rfidDashLoadHistory(full) {
+    try {
+        const url = `${API}/rfid/scan/history?limit=${full ? 200 : 100}&since=${full ? 0 : _rfidDashLastTs}`;
+        const r = await api(url);
+        const events = r.data?.events || [];
+        if (events.length === 0 && !full) return;
+        if (full) {
+            _rfidDashEvents = events;
+        } else {
+            // 增量合并：events 已是最新在顶，倒序追加到本地缓存顶部
+            for (const e of events) {
+                _rfidDashEvents.unshift(e);
+            }
+            // 限制本地缓存上限
+            if (_rfidDashEvents.length > 500) _rfidDashEvents.length = 500;
+        }
+        // 更新增量游标（取本地最新事件的 read_time）
+        if (_rfidDashEvents.length > 0) {
+            _rfidDashLastTs = _rfidDashEvents[0].read_time || 0;
+        }
+        rfidDashRenderTable();
+    } catch (e) { /* ignore */ }
+}
+
+function rfidDashRenderTable() {
+    const tbody = document.getElementById('rfd-tbody');
+    const countEl = document.getElementById('rfd-count');
+    if (!tbody) return;
+    countEl.textContent = `${_rfidDashEvents.length} 条`;
+    if (_rfidDashEvents.length === 0) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="6">暂无扫描事件</td></tr>';
+        return;
+    }
+    const modeMap = { auto: '<span class="badge badge-success">自动</span>', single: '<span class="badge badge-info">单次</span>', manual: '<span class="badge badge-warning">手动</span>' };
+    tbody.innerHTML = _rfidDashEvents.map(e => `
+        <tr>
+            <td style="font-size:12px;">${e.read_time_iso ? new Date(e.read_time_iso).toLocaleString('zh-CN', {hour12:false}) : '-'}</td>
+            <td class="mono" style="font-size:12px;">${e.tag_id || '-'}</td>
+            <td style="font-size:12px;color:${e.rssi != null && e.rssi > -60 ? 'var(--success)' : (e.rssi != null && e.rssi > -75 ? 'var(--warning)' : 'var(--danger)')};">${e.rssi != null ? e.rssi + ' dBm' : '-'}</td>
+            <td class="mono" style="font-size:11px;">${e.pc != null ? '0x' + e.pc.toString(16).toUpperCase().padStart(4,'0') : '-'}</td>
+            <td class="mono" style="font-size:11px;">${e.crc != null ? '0x' + e.crc.toString(16).toUpperCase().padStart(4,'0') : '-'}</td>
+            <td>${modeMap[e.mode] || e.mode || '-'}</td>
+        </tr>`).join('');
+    // 自动滚动到顶部（最新事件在顶）
+    const autoScroll = document.getElementById('rfd-autoscroll');
+    if (autoScroll && autoScroll.checked) {
+        document.getElementById('rfd-table-wrap').scrollTop = 0;
+    }
+}
+
+async function rfidDashSingle() {
+    const btn = document.getElementById('rfd-btn-single');
+    btn.disabled = true; btn.textContent = '扫描中...';
+    try {
+        const r = await api(`${API}/rfid/read`, { method: 'POST' });
+        if (r.success && r.data) {
+            toast(`读取成功: EPC=${r.data.tag_id}, RSSI=${r.data.rssi} dBm`);
+        } else {
+            toast(r.message || '未扫描到标签', 'warn');
+        }
+        await rfidDashRefresh();
+    } catch (ex) {
+        toast(ex.message, 'error');
+    } finally {
+        btn.disabled = false; btn.textContent = '单次扫描';
+    }
+}
+
+async function rfidDashAuto(enable) {
+    try {
+        const r = await api(`${API}/rfid/scan/auto`, { method: 'POST', body: JSON.stringify({ enable }) });
+        toast(r.message);
+        await rfidDashLoadStats();
+    } catch (ex) {
+        toast(ex.message, 'error');
+    }
+}
+
+async function rfidDashClearHistory() {
+    if (!confirm('确认清空扫描历史？此操作不影响已扫描标签缓存。')) return;
+    try {
+        const r = await api(`${API}/rfid/scan/clear-history`, { method: 'POST' });
+        toast(r.message);
+        _rfidDashEvents = [];
+        _rfidDashLastTs = 0;
+        rfidDashRenderTable();
+        await rfidDashLoadStats();
+    } catch (ex) {
+        toast(ex.message, 'error');
+    }
 }
 
 // ═══════════════════ PAGE: RFID SETTINGS ═══════════════════

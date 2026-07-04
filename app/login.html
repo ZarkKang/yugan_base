@@ -102,8 +102,8 @@
 
     <script>
         // 配置
-        const GATEWAY_URL = 'http://localhost:8080';
-        const WAREHOUSE_URL = 'http://localhost:8001';
+        const GATEWAY_URL = `http://${window.location.hostname}:8080`;
+        const WAREHOUSE_URL = `http://${window.location.hostname}:8001`;
         
         // DOM 元素
         const loginForm = document.getElementById('loginForm');
