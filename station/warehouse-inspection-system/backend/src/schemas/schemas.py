@@ -2,7 +2,7 @@
 Pydantic schemas - API请求/响应模型
 """
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 from enum import Enum
 

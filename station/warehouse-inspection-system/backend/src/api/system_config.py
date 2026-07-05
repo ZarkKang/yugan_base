@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..db.database import SessionLocal, get_db
-from ..core.security import get_current_user
+from .auth import get_current_user
 from ..schemas.schemas import ClipCaptureConfigRequest, ClipCaptureConfigResponse
 from ..services.clip_config import (
     get_clip_config,

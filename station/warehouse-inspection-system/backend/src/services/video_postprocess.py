@@ -89,6 +89,8 @@ def postprocess_video(
         video_rec.processing_status = status
         if status == "failed":
             video_rec.processing_error = "处理失败，详见日志"
+        elif status == "timeout":
+            video_rec.processing_error = "处理超时，部分结果可能不完整"
         db.commit()
 
         # 3. 为每个识别到的 QR 码写 InventoryItem + 触发交叉校验
