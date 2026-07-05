@@ -154,6 +154,9 @@ class DroneShelfSyncRequest(BaseModel):
     version: Optional[int] = 1
     coordinate_frame: Optional[str] = None
     shelves: List[DroneShelfItem] = []
+    # 兼容无人机端字段
+    drone_code: Optional[str] = Field(None, description="无人机编号(冗余)")
+    timestamp: Optional[float] = Field(None, description="Unix 时间戳(秒)")
 
 
 class ShelfSyncResult(BaseModel):
@@ -343,6 +346,9 @@ class DroneHeartbeatRequest(BaseModel):
     current_waypoint: Optional[str] = Field(None, description="当前航点ID")
     task_progress: Optional[Dict[str, int]] = Field(None, description="任务进度 {scanned, total}")
     last_heartbeat: Optional[datetime] = Field(None, description="无人机端最后心跳时间")
+    # 兼容无人机端字段
+    drone_code: Optional[str] = Field(None, description="无人机编号(冗余，仅日志)")
+    timestamp: Optional[float] = Field(None, description="Unix 时间戳(秒)")
 
 
 class TaskProgressRequest(BaseModel):
@@ -366,6 +372,19 @@ class WaypointArriveRequest(BaseModel):
     task_code: Optional[str] = Field(None, description="关联任务编号")
     position: Optional[Dict[str, float]] = Field(None, description="到达位置 {x, y, z}")
     arrived_at: Optional[datetime] = Field(None, description="到达时间")
+    # 兼容无人机端字段
+    drone_code: Optional[str] = Field(None, description="无人机编号")
+    command: Optional[str] = Field(None, description="命令类型(如 WAYPOINT_ARRIVED)")
+    waypoint_index: Optional[int] = Field(None, ge=1, description="航点序号(从1开始)")
+    timestamp: Optional[float] = Field(None, description="Unix 时间戳(秒)")
+
+
+class DroneRfidUploadRequest(BaseModel):
+    """无人机 RFID 扫描结果上传"""
+    data_type: str = "rfid"
+    payload: List[dict] = Field(default_factory=list, description="RFID读取记录列表(灵活dict)")
+    timestamp: Optional[float] = Field(None, description="Unix 时间戳(秒)")
+    task_code: Optional[str] = Field(None, description="关联任务编号")
 
 
 class DroneDeviceResponse(BaseModel):

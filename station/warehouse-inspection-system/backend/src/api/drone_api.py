@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func as sa_func
 
 from ..db.database import SessionLocal
-from ..models.models import Drone, Task, TaskStatus, Waypoint, Shelf, InspectionReport
+from ..models.models import Drone, Task, TaskStatus, Waypoint, Shelf, InspectionReport, RFIDData
 from ..schemas.schemas import (
     APIResponse,
     DroneHeartbeatRequest,
@@ -25,6 +25,7 @@ from ..schemas.schemas import (
     WaypointArriveRequest,
     DroneShelfSyncRequest,
     ShelfSyncResult,
+    DroneRfidUploadRequest,
 )
 from ..services.device_verification import upsert_device_from_heartbeat
 
@@ -71,15 +72,24 @@ def drone_heartbeat(payload: DroneHeartbeatRequest, db: Session = Depends(_get_d
         raise HTTPException(status_code=404, detail=f"无人机不存在: id={payload.drone_id}")
 
     # 更新基本状态
+    # ★ 状态映射：无人机 running/completed → 基站 flying/idle
+    _STATUS_MAP = {"running": "flying", "completed": "idle"}
     if payload.status is not None:
-        drone.status = payload.status
+        drone.status = _STATUS_MAP.get(payload.status, payload.status)
     if payload.battery is not None:
         drone.battery_level = payload.battery
     if payload.position:
         drone.last_position_x = payload.position.get("x", drone.last_position_x)
         drone.last_position_y = payload.position.get("y", drone.last_position_y)
         drone.last_position_z = payload.position.get("z", drone.last_position_z)
-    drone.last_seen = datetime.utcnow()
+    # ★ timestamp → last_seen 转换
+    if payload.timestamp is not None:
+        try:
+            drone.last_seen = datetime.fromtimestamp(payload.timestamp)
+        except (OSError, ValueError):
+            drone.last_seen = datetime.utcnow()
+    else:
+        drone.last_seen = datetime.utcnow()
     db.commit()
 
     # 心跳到达自动维护 DroneDevice 记录
@@ -294,16 +304,39 @@ def waypoint_arrive(drone_id: int, waypoint_id: str,
     """
     drone = _drone_or_404(db, drone_id)
 
+    # ★ 双重查询：先按 Waypoint.id 查，再按 shelf_code + task_code 查
+    # 无人机端 waypoint_id 可能是货柜编号（如 "01-01"），而非 DB 主键（如 "wp_xxx"）
     waypoint = db.query(Waypoint).filter(Waypoint.id == waypoint_id).first()
+    if not waypoint and payload.task_code:
+        waypoint = db.query(Waypoint).filter(
+            Waypoint.shelf_code == waypoint_id,
+            Waypoint.task_id == payload.task_code,
+        ).first()
     if not waypoint:
-        raise HTTPException(status_code=404, detail=f"航点不存在: {waypoint_id}")
+        raise HTTPException(status_code=404, detail=f"航点不存在: id或shelf_code={waypoint_id}")
 
     # 若提供 task_code，校验航点归属
     if payload.task_code and waypoint.task_id != payload.task_code:
         raise HTTPException(status_code=400, detail=f"航点 {waypoint_id} 不属于任务 {payload.task_code}")
 
+    # ★ timestamp → scanned_at 自动转换
+    if payload.timestamp and not payload.arrived_at:
+        try:
+            waypoint.scanned_at = datetime.fromtimestamp(payload.timestamp)
+        except (OSError, ValueError):
+            waypoint.scanned_at = datetime.utcnow()
+    elif payload.arrived_at:
+        waypoint.scanned_at = payload.arrived_at
+
+    # ★ 若 payload 缺 position，从 Waypoint 表读取（用于 clip 位置校验）
+    position = payload.position
+    if not position and waypoint:
+        position = {"x": waypoint.position_x or 0, "y": waypoint.position_y or 0, "z": waypoint.position_z or 0}
+
     # 更新航点状态
     waypoint.status = "scanning"
+    if payload.waypoint_index is not None:
+        waypoint.sort_order = payload.waypoint_index
     db.commit()
 
     # 尝试在活跃 WS 视频流中标记帧位置
@@ -314,16 +347,16 @@ def waypoint_arrive(drone_id: int, waypoint_id: str,
         aggregator = VideoStreamAggregator.get_instance()
         ws_marked = aggregator.mark_waypoint_for_drone(
             drone_id=drone_id,
-            waypoint_id=waypoint_id,
+            waypoint_id=waypoint.id,  # 使用 DB 主键而非路径参数
             expected_sku=waypoint.expected_sku,
-            position=payload.position,
+            position=position,
         )
-        # 调度 clip 截取
+        # 调度 clip 截取（使用修正后的 position）
         clip_result = aggregator.schedule_clip_capture(
             drone_id=drone_id,
-            waypoint_id=waypoint_id,
+            waypoint_id=waypoint.id,  # 使用 DB 主键而非路径参数
             expected_sku=waypoint.expected_sku,
-            position=payload.position,
+            position=position,
         )
     except Exception as e:
         logger.debug(f"WS 帧标记/Clip 截取调度失败（不影响航点到达处理）: {e}")
@@ -334,7 +367,8 @@ def waypoint_arrive(drone_id: int, waypoint_id: str,
     )
 
     return APIResponse(success=True, message="航点到达已确认", data={
-        "waypoint_id": waypoint_id,
+        "waypoint_id": waypoint.id,
+        "shelf_code": waypoint.shelf_code,
         "waypoint_status": "scanning",
         "expected_sku": waypoint.expected_sku,
         "scan_timeout": 30,
@@ -379,6 +413,40 @@ def get_task_waypoints(task_code: str, db: Session = Depends(_get_db)):
 # ========== 货架同步 ==========
 
 
+def _is_heartbeat_payload(payload: DroneShelfSyncRequest) -> bool:
+    """检测是否为误路由到 shelves/sync 的心跳数据
+
+    无人机当前配置 heartbeat_path 为 shelves/sync 路径，
+    心跳数据特征：shelves 为空 + timestamp 存在。
+    正常货架同步一定有 shelves 数据。
+    """
+    return payload.timestamp is not None and len(payload.shelves) == 0
+
+
+def _handle_misrouted_heartbeat(drone_id: int, payload: DroneShelfSyncRequest, db: Session):
+    """处理误路由到 shelves/sync 的心跳数据"""
+    drone = _drone_or_404(db, drone_id)
+
+    # 状态映射
+    _STATUS_MAP = {"running": "flying", "completed": "idle"}
+
+    if payload.timestamp:
+        try:
+            drone.last_seen = datetime.fromtimestamp(payload.timestamp)
+        except (OSError, ValueError):
+            drone.last_seen = datetime.utcnow()
+    else:
+        drone.last_seen = datetime.utcnow()
+
+    logger.info(f"心跳数据(兼容路径 shelves/sync): drone={drone.drone_code} id={drone_id}")
+    db.commit()
+
+    return APIResponse(success=True, message="心跳已接收(兼容路径)", data={
+        "drone_status": drone.status,
+        "server_time": datetime.utcnow().isoformat(),
+    })
+
+
 @router.post("/{drone_id}/shelves/sync", response_model=ShelfSyncResult)
 def sync_shelves_from_drone(drone_id: int, payload: DroneShelfSyncRequest,
                             db: Session = Depends(_get_db)):
@@ -390,6 +458,11 @@ def sync_shelves_from_drone(drone_id: int, payload: DroneShelfSyncRequest,
     - yaml有 + DB活跃 → 更新
     - DB活跃但yaml无 → 归档(软删除)
     """
+    # ★ 心跳数据检测：若 body 含心跳特征字段且 shelves 为空，走心跳逻辑
+    # 防止无人机误用心跳数据调用货架同步，导致所有货架被归档
+    if _is_heartbeat_payload(payload):
+        return _handle_misrouted_heartbeat(drone_id, payload, db)
+
     _drone_or_404(db, drone_id)
 
     now = datetime.utcnow()
@@ -482,3 +555,61 @@ def sync_shelves_from_drone(drone_id: int, payload: DroneShelfSyncRequest,
             "synced_at": now.isoformat(),
         }
     )
+
+
+# ========== RFID 上传 ==========
+
+
+@router.post("/{drone_id}/rfid/upload", response_model=APIResponse)
+def upload_rfid_data(drone_id: int, payload: DroneRfidUploadRequest,
+                     db: Session = Depends(_get_db)):
+    """
+    无人机 RFID 扫描结果上传
+
+    最后一个航点完成时统一上传所有 RFID 数据。
+    payload.payload 为 List[dict]，支持多种字段名灵活解析。
+    """
+    drone = _drone_or_404(db, drone_id)
+
+    # 推断 task_code：优先用 payload，否则从当前运行任务获取
+    task_code = payload.task_code
+    if not task_code:
+        running_task = db.query(Task).filter(
+            Task.drone_id == drone_id,
+            Task.status == TaskStatus.RUNNING,
+        ).first()
+        if running_task:
+            task_code = running_task.task_code
+
+    detected_at = (
+        datetime.fromtimestamp(payload.timestamp) if payload.timestamp
+        else datetime.utcnow()
+    )
+
+    saved_count = 0
+    for item in payload.payload:
+        try:
+            rec = RFIDData(
+                rfid_tag=item.get("rfid_tag") or item.get("epc") or item.get("tag_id", ""),
+                tag_type=item.get("tag_type"),
+                signal_strength=item.get("signal_strength"),
+                latitude=item.get("latitude"),
+                longitude=item.get("longitude"),
+                altitude=item.get("altitude"),
+                drone_id=drone_id,
+                task_code=task_code,
+                detected_at=detected_at,
+            )
+            db.add(rec)
+            saved_count += 1
+        except Exception as e:
+            logger.warning(f"RFID 记录写入失败: {e}")
+
+    db.commit()
+    logger.info(f"RFID 上传完成: drone={drone.drone_code} task={task_code} count={saved_count}")
+
+    return APIResponse(success=True, message=f"RFID 数据已接收，共 {saved_count} 条", data={
+        "drone_id": drone_id,
+        "task_code": task_code,
+        "saved_count": saved_count,
+    })

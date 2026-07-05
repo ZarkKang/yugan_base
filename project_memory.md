@@ -111,6 +111,17 @@ RFID 读标签 → EPC hex
 - **已删除的旧端点**：`drones.py` 的 `GET /{drone_id}/position` 和 `POST /{drone_code}/heartbeat`；`inspection.py` 的 5 个无人机端点；`gateway.py` 的 `POST /shelves/sync`
 - **前端 CRUD 端点**仍在 `api/drones.py`，不受影响
 
+## 无人机端兼容性备注（2026-07-06）
+
+根据 `doc/2026-07-06_REAL_DRONE_400_changes.md`，无人机端 5 条链路的实际行为与基站端原始设计有差异，基站已做兼容处理：
+
+1. **心跳误路由**：无人机当前 `heartbeat_path` 配置为 `shelves/sync`，心跳数据 `{drone_code, position, status, battery, timestamp}` 发到货架同步端点。基站端 `sync_shelves_from_drone()` 入口检测 `shelves 为空 + timestamp 存在` 时自动路由到心跳处理逻辑（`_handle_misrouted_heartbeat`），防止货架被误归档。
+2. **waypoint_id 语义冲突**：无人机发送货柜编号（如 `01-01`）作为路径中的 `waypoint_id`，但基站 `Waypoint.id` 格式为 `wp_xxx`。`waypoint_arrive()` 先按 `Waypoint.id` 查询，查不到时自动按 `Waypoint.shelf_code + task_code` 回退查询。
+3. **RFID 上传**：新增 `POST /api/drones/{drone_id}/rfid/upload`，灵活解析 `List[dict]` payload，支持多种字段名（rfid_tag/epc/tag_id）。
+4. **状态映射**：无人机 `running`→基站 `flying`，`completed`→`idle`。在 `drone_heartbeat()` 和 `_handle_misrouted_heartbeat()` 中均做映射。
+5. **时间戳转换**：无人机用 Unix 时间戳（float 秒），基站自动 `datetime.fromtimestamp()` 转换。
+6. **position 兜底**：航点到达时若无人机未传 position，从 `Waypoint` 表读取坐标用于 clip 位置校验。
+
 ## QR 双图保存路径约定
 
 - 裁剪 QR 区域小图：`storage/qr_crops/{task_id_or_no_task}/{waypoint_id_or_no_wp}/crop_{image_id}_{yyyyMMdd_HHmmss}.jpg`
