@@ -34,6 +34,9 @@ from ..models.models import (
 
 logger = logging.getLogger(__name__)
 
+# 存储根目录（与 gateway.py / videos.py 一致，可通过环境变量覆盖）
+STORAGE_ROOT = os.environ.get("STORAGE_ROOT", "storage")
+
 # 全局单例
 _engine_instance = None
 _engine_lock = threading.Lock()
@@ -179,6 +182,9 @@ class QRRecognitionEngine:
 
         # 3) 二维码区域检测与裁剪 → 多区域逐个尝试
         qr_text, confidence, decoder = None, 0.0, None
+        # 保留命中区域（用于 QR 双图保存：裁剪图 + 标注图）
+        hit_crop = None  # 命中的裁剪图（ndarray）
+        hit_bbox = None  # 命中的 bbox (x, y, w, h)
         crop_regions = self._detect_qr_regions(img)
 
         # 全图也尝试
@@ -191,6 +197,8 @@ class QRRecognitionEngine:
             if text:
                 if confidence == 0.0 or conf > confidence:
                     qr_text, confidence, decoder = text, conf, dec
+                    hit_crop = crop_img
+                    hit_bbox = bbox
                 # 如果置信度足够高就停止搜索
                 if conf > 0.8:
                     break
@@ -204,6 +212,8 @@ class QRRecognitionEngine:
                     qr_text = text2
                     confidence = conf2
                     decoder = (dec2 or "") + "+enhanced"
+                    hit_crop = crop_img  # 保留命中的裁剪图（增强前的原图）
+                    hit_bbox = bbox
                     break
 
         # 5) 写入结果 + 库存判定
@@ -232,6 +242,18 @@ class QRRecognitionEngine:
 
             record.inventory_status = inventory_status
             record.inventory_message = inventory_message
+
+            # ── QR 双图证据保存（仅在 QR 命中时） ──
+            # 裁剪图: 裁剪出的 QR 区域小图 → ImageRecord.qr_cropped_path
+            # 标注图: 带 QR 框选标注的原图 → ImageRecord.annotated_path
+            if qr_text and hit_crop is not None and hit_bbox is not None:
+                crop_path, annot_path = self._save_qr_evidence_images(
+                    img, hit_crop, hit_bbox, qr_text, record
+                )
+                if crop_path:
+                    record.qr_cropped_path = crop_path
+                if annot_path:
+                    record.annotated_path = annot_path
 
             db.commit()
             self._update_task_counts(record.task_id, db)
@@ -438,6 +460,62 @@ class QRRecognitionEngine:
             task.total_recognized = sum(1 for i in imgs if i.qr_data)
             task.total_failed = sum(1 for i in imgs if i.status == "failed")
             task.pending_count = sum(1 for i in imgs if i.status in ("pending", "processing"))
+
+    # ── QR 双图证据保存 ──────────────────────────────
+    def _save_qr_evidence_images(
+        self,
+        original_img: np.ndarray,
+        cropped_img: np.ndarray,
+        bbox: tuple,
+        qr_text: str,
+        record: ImageRecord,
+    ) -> tuple:
+        """
+        保存 QR 双图证据：
+          1. 裁剪图: 裁剪出的 QR 区域小图 → qr_cropped_path
+          2. 标注图: 带 QR 框选标注的原图 → annotated_path
+
+        存储路径:
+          storage/qr_crops/{task_code}/{waypoint_id}/crop_{image_id}_{ts}.jpg
+          storage/qr_crops/{task_code}/{waypoint_id}/annotated_{image_id}_{ts}.jpg
+
+        Args:
+            original_img: 原图（用于生成标注图）
+            cropped_img: 命中的 QR 区域裁剪图
+            bbox: (x, y, w, h) 框选位置
+            qr_text: QR 解码内容
+            record: ImageRecord 实例
+
+        Returns:
+            (crop_path, annot_path) — 失败时对应位置为 None
+        """
+        from .annotator import save_qr_dual_images
+
+        # 路径: storage/qr_crops/{task_code}/{waypoint_id}/
+        task_dir = record.task_id or "no_task"
+        wp_dir = record.waypoint_id or "no_wp"
+        crop_dir = os.path.join(STORAGE_ROOT, "qr_crops", task_dir, wp_dir)
+        try:
+            os.makedirs(crop_dir, exist_ok=True)
+        except Exception as e:
+            logger.error("[QR引擎] 创建 QR 证据目录失败: %s | 错误: %s", crop_dir, e)
+            return None, None
+
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        crop_path = os.path.join(crop_dir, f"crop_{record.id}_{ts}.jpg")
+        annot_path = os.path.join(crop_dir, f"annotated_{record.id}_{ts}.jpg")
+
+        crop_ok, annot_ok = save_qr_dual_images(
+            original_img, cropped_img, bbox, qr_text, crop_path, annot_path
+        )
+
+        if crop_ok:
+            logger.debug("[QR引擎] QR 裁剪图已保存: %s", crop_path)
+        if annot_ok:
+            logger.debug("[QR引擎] QR 标注图已保存: %s", annot_path)
+
+        return (crop_path if crop_ok else None,
+                annot_path if annot_ok else None)
 
     # ── 标记失败 ──────────────────────────────────────
     def _mark_failed(self, image_id: str, error: str):

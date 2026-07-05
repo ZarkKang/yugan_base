@@ -97,11 +97,6 @@ cd drone/drone-db-prototype/backend && pip install -r requirements.txt
 cd ../../station/warehouse-inspection-system/backend && pip install -r requirements.txt
 cd ../../app/api-gateway && pip install -r requirements.txt
 
-# 安装 Node.js 依赖
-echo ""
-echo "正在安装 Node.js 依赖..."
-cd ../app/desktop-app && npm install
-
 # 配置 systemd 服务（可选）
 echo ""
 read -p "是否配置 systemd 服务？(需要 root 权限) (y/n): " service_choice
@@ -195,7 +190,6 @@ echo "  ./启动.sh                 # 菜单选择"
 echo "  make drone                # 启动无人机数据系统"
 echo "  make warehouse            # 启动仓库巡检系统"
 echo "  make gateway              # 启动 API 网关"
-echo "  make desktop              # 启动桌面应用"
 echo "  make docker               # Docker 启动全部"
 echo ""
 echo "查看 LINUX_DEPLOYMENT.md 获取更多详情"

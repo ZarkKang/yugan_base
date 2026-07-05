@@ -85,6 +85,50 @@ RFID 读标签 → EPC hex
   → 未找到: INSERT inbound_records (status=failed, message="未注册")
 ```
 
+## WS 图传协议速查
+
+| 项 | 值 |
+|----|----|
+| 端点 | `ws://192.168.1.200:8080/ws/video/{drone_id}`（经 api-gateway） |
+| 直连端点 | `ws://192.168.1.200:8001/ws/video/{drone_id}`（warehouse 直连，仅内网测试用） |
+| 帧消息 | binary（JPEG 字节流，无包装） |
+| 控制消息 | text（JSON，必含 `type` 字段） |
+| 控制消息类型 | `stream_start` / `waypoint_enter` / `waypoint_leave` / `stream_stop` / `heartbeat` |
+| 默认 FPS | 15 |
+| 单文件策略 | 一次 WS 会话 = 一个 mp4 文件 + 一个 VideoData 行 |
+| 航点不切分 | 到达航点仅追加 `waypoint_markers` JSON 数组项，不切分视频 |
+| 网络降级 | WS 不稳定时无人机回退 `POST /api/v1/videos/upload` |
+| 实现文件 | `services/video_stream_aggregator.py` + `api/ws_video.py` + `app/api-gateway/main.py:277` |
+
+## 无人机端 API 命名空间约定（2026-07-06 统一）
+
+- **所有无人机→基站的 HTTP 接口**统一到 `/api/drones/` 命名空间，实现在 `api/drone_api.py`
+  - 两个路由：`router`（prefix `/api/drones`）+ `waypoints_router`（prefix `/api`，仅 `/api/tasks/{task_code}/waypoints`）
+- **路径参数使用 `drone_id`（整数 PK）**，不再使用 `drone_code`（字符串）
+- **drone_id 获取方式**：无人机通过 `GET /api/drones/lookup?drone_code=xxx` 反查得到整数 `drone_id`，缓存后用于后续所有请求
+- **WS 图传端点**同样使用 `drone_id`：`ws://.../ws/video/{drone_id}`
+- **api-gateway 代理**：`/api/drones/{path}` → warehouse `/api/drones/{path}`；`/api/tasks/{path}` (GET) → warehouse `/api/tasks/{path}`
+- **已删除的旧端点**：`drones.py` 的 `GET /{drone_id}/position` 和 `POST /{drone_code}/heartbeat`；`inspection.py` 的 5 个无人机端点；`gateway.py` 的 `POST /shelves/sync`
+- **前端 CRUD 端点**仍在 `api/drones.py`，不受影响
+
+## QR 双图保存路径约定
+
+- 裁剪 QR 区域小图：`storage/qr_crops/{task_id_or_no_task}/{waypoint_id_or_no_wp}/crop_{image_id}_{yyyyMMdd_HHmmss}.jpg`
+- 带 QR 框选标注的原图：`storage/qr_crops/{task_id_or_no_task}/{waypoint_id_or_no_wp}/annotated_{image_id}_{yyyyMMdd_HHmmss}.jpg`
+- 仅在 QR 命中时保存（`qr_text is not None`），未命中两字段保持 NULL
+- 实现入口：`image/qr_worker.py:_save_qr_evidence_images()`，复用 `image/annotator.draw_qr_bbox()` + `image/crop.save_image()`
+- 数据库字段：`ImageRecord.qr_cropped_path` / `ImageRecord.annotated_path`
+
+## VideoData.source 字段语义
+
+| 取值 | 含义 | 上传通道 | 触发后处理 |
+|------|------|---------|-----------|
+| `upload` | 无人机 multipart 文件上传 | `POST /api/v1/videos/upload` | `videos.py:_process_video_background` → `postprocess_video(source="upload")` |
+| `gateway` | 无人机经 gateway Base64 上传 | `POST /api/warehouse/videos/...` | `gateway.py:_process_video_in_background` → `postprocess_video(source="gateway")` |
+| `ws_stream` | 无人机 WS 实时图传 | `WS /ws/video/{drone_id}` | `video_stream_aggregator.close_session()` → `postprocess_video(source="ws_stream")` |
+
+三条通道最终汇入 `services/video_postprocess.postprocess_video()` 公共管线，保证 QR 识别 + InventoryItem 写入 + 交叉校验逻辑一致。
+
 ## 未来计划
 - Alembic 数据库迁移（当前未集成，P3 优先级）
 - Gateway 端到端测试

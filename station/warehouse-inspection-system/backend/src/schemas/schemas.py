@@ -140,10 +140,14 @@ class ShelfResponse(ShelfBase):
 class DroneShelfItem(BaseModel):
     shelf_id: str
     shelf_name: Optional[str] = None
+    zone: Optional[str] = None
     position: Optional[dict] = None  # {x, y, z}
     yaw_rad: Optional[float] = None
     arrival_radius_m: Optional[float] = None
     dwell_time_s: Optional[float] = None
+    rows: Optional[int] = 1
+    columns: Optional[int] = 1
+    levels: Optional[int] = 1
 
 
 class DroneShelfSyncRequest(BaseModel):
@@ -325,6 +329,43 @@ class DroneDeviceRegisterRequest(BaseModel):
     encryption_type: Optional[str] = None
     encryption_key: Optional[str] = None
     heartbeat_interval: int = 5
+
+
+# ========== 无人机端 API Schemas ==========
+
+class DroneHeartbeatRequest(BaseModel):
+    """无人机心跳上报请求"""
+    drone_id: int = Field(..., description="无人机ID(整数PK)")
+    battery: Optional[float] = Field(None, ge=0, le=100, description="电池电量百分比")
+    status: Optional[str] = Field(None, description="无人机状态: idle/flying/online/offline/maintenance")
+    position: Optional[Dict[str, float]] = Field(None, description="位置坐标 {x, y, z}")
+    current_task: Optional[str] = Field(None, description="当前任务编号")
+    current_waypoint: Optional[str] = Field(None, description="当前航点ID")
+    task_progress: Optional[Dict[str, int]] = Field(None, description="任务进度 {scanned, total}")
+    last_heartbeat: Optional[datetime] = Field(None, description="无人机端最后心跳时间")
+
+
+class TaskProgressRequest(BaseModel):
+    """任务进度上报请求"""
+    scanned: Optional[int] = Field(None, ge=0, description="已扫描航点数")
+    total: Optional[int] = Field(None, ge=0, description="总航点数")
+    normal_count: Optional[int] = Field(None, ge=0, description="正常数")
+    abnormal_count: Optional[int] = Field(None, ge=0, description="异常数")
+    current_waypoint: Optional[str] = None
+
+
+class TaskCompleteRequest(BaseModel):
+    """任务完成上报请求"""
+    total_scanned: Optional[int] = None
+    total_normal: Optional[int] = None
+    total_abnormal: Optional[int] = None
+
+
+class WaypointArriveRequest(BaseModel):
+    """航点到达命令请求"""
+    task_code: Optional[str] = Field(None, description="关联任务编号")
+    position: Optional[Dict[str, float]] = Field(None, description="到达位置 {x, y, z}")
+    arrived_at: Optional[datetime] = Field(None, description="到达时间")
 
 
 class DroneDeviceResponse(BaseModel):

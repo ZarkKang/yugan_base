@@ -1,9 +1,9 @@
 """
-API路由 - 无人机管理
+API路由 - 无人机管理（前端 CRUD）
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from datetime import datetime, timedelta
 from ..db.database import get_db
 from ..schemas.schemas import (
@@ -13,7 +13,6 @@ from ..schemas.schemas import (
     APIResponse
 )
 from ..models.models import Drone, User
-from ..services.device_verification import upsert_device_from_heartbeat
 from .auth import get_current_user
 
 router = APIRouter(prefix="/drones", tags=["无人机管理"])
@@ -111,50 +110,3 @@ def delete_drone(drone_id: int, db: Session = Depends(get_db), current_user: Use
     db.delete(drone)
     db.commit()
     return APIResponse(success=True, message="删除成功")
-
-
-@router.get("/{drone_id}/position", response_model=APIResponse)
-def get_drone_position(drone_id: int, db: Session = Depends(get_db)):
-    """获取无人机当前位置"""
-    drone = db.query(Drone).filter(Drone.id == drone_id).first()
-    if not drone:
-        raise HTTPException(status_code=404, detail="无人机不存在")
-    return APIResponse(success=True, message="操作成功", data={
-        "x": drone.last_position_x or 0.0,
-        "y": drone.last_position_y or 0.0,
-        "z": drone.last_position_z or 0.0,
-    })
-
-
-@router.post("/{drone_code}/heartbeat", response_model=APIResponse)
-def drone_heartbeat(drone_code: str, payload: dict, db: Session = Depends(get_db)):
-    """无人机心跳上报"""
-    drone = db.query(Drone).filter(Drone.drone_code == drone_code).first()
-    if not drone:
-        raise HTTPException(status_code=404, detail="无人机不存在")
-    # 更新状态
-    drone.status = payload.get("status", drone.status)
-    drone.battery_level = payload.get("battery", drone.battery_level)
-    pos = payload.get("position", {})
-    if pos:
-        drone.last_position_x = pos.get("x", drone.last_position_x)
-        drone.last_position_y = pos.get("y", drone.last_position_y)
-        drone.last_position_z = pos.get("z", drone.last_position_z)
-    drone.last_seen = datetime.utcnow()
-    db.commit()
-    # 心跳到达自动维护 DroneDevice 记录 (替代 /device/report 上报)
-    try:
-        upsert_device_from_heartbeat(db, drone)
-    except Exception as e:
-        # 设备表维护失败不影响心跳接收
-        pass
-    # 增强返回: 附带基站状态信息供无人机端被动获取
-    return APIResponse(
-        success=True,
-        message="心跳已接收",
-        data={
-            "server_time": datetime.utcnow().isoformat(),
-            "drone_registered": True,
-            "base_status": "online",
-        }
-    )

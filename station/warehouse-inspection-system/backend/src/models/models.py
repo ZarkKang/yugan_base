@@ -372,6 +372,10 @@ class ImageRecord(Base):
     expected_sku = Column(String(128), nullable=True)
     inventory_message = Column(String(512), nullable=True)
 
+    # ── QR 双图证据（2026-07 新增） ──
+    qr_cropped_path = Column(String(512), nullable=True, comment="裁剪出的 QR 区域小图路径（证据图1）")
+    annotated_path = Column(String(512), nullable=True, comment="带 QR 框选标注的原图路径（证据图2）")
+
     created_at = Column(DateTime, server_default=func.now())
 
     def __init__(self, **kwargs):
@@ -575,6 +579,12 @@ class VideoData(Base):
     qr_codes_json = Column(Text, nullable=True, comment="视频中识别到的二维码JSON列表")
     processing_status = Column(String(20), default="pending", comment="处理状态: pending/extracting/recognizing/completed/failed")
     processing_error = Column(Text, nullable=True, comment="处理失败原因")
+
+    # ── WS 实时图传扩展字段（2026-07 新增） ──
+    source = Column(String(16), default="upload", comment="数据来源: upload(multipart) / gateway(Base64) / ws_stream(WebSocket图传)")
+    stream_session_id = Column(String(64), nullable=True, comment="WS 流会话 ID（同一次 WS 连接内所有视频共享，便于关联查询）")
+    frame_rate_actual = Column(Float, nullable=True, comment="WS 流实际帧率（聚合时统计）")
+    waypoint_markers = Column(Text, nullable=True, comment="航点标记帧 JSON 数组: [{waypoint_id, frame_index, timestamp, expected_sku, position}, ...] — 不切分视频，仅记录航点对应视频帧位置")
 
     # 元数据
     description = Column(Text, nullable=True, comment="备注")

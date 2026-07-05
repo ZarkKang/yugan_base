@@ -207,6 +207,66 @@ async def proxy_to_warehouse(path: str, request: Request):
         raise HTTPException(status_code=502, detail="Bad gateway")
 
 
+@app.api_route("/api/drones/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+async def proxy_to_warehouse_drones(path: str, request: Request):
+    """代理无人机端API到仓库巡检系统 (/api/drones/ → warehouse /api/drones/)"""
+    service = SERVICES.get("warehouse")
+    if not service['healthy']:
+        await check_service_health("warehouse")
+        if not service['healthy']:
+            raise HTTPException(status_code=503, detail="Warehouse service unavailable")
+
+    url = f"{service['base_url']}/api/drones/{path}"
+
+    body = await request.body() if request.method != "GET" else None
+    headers = dict(request.headers)
+    headers.pop('host', None)
+
+    try:
+        response = await client.request(
+            method=request.method,
+            url=url,
+            headers=headers,
+            params=request.query_params,
+            content=body,
+            follow_redirects=True
+        )
+        return _build_proxy_response(response)
+    except Exception as e:
+        logger.error(f"Proxy to warehouse drones error: {e}")
+        raise HTTPException(status_code=502, detail="Bad gateway")
+
+
+@app.api_route("/api/tasks/{path:path}", methods=["GET"])
+async def proxy_tasks_to_warehouse(path: str, request: Request):
+    """代理任务相关API到仓库巡检系统 (/api/tasks/ → warehouse /api/tasks/)"""
+    service = SERVICES.get("warehouse")
+    if not service['healthy']:
+        await check_service_health("warehouse")
+        if not service['healthy']:
+            raise HTTPException(status_code=503, detail="Warehouse service unavailable")
+
+    url = f"{service['base_url']}/api/tasks/{path}"
+
+    body = await request.body() if request.method != "GET" else None
+    headers = dict(request.headers)
+    headers.pop('host', None)
+
+    try:
+        response = await client.request(
+            method=request.method,
+            url=url,
+            headers=headers,
+            params=request.query_params,
+            content=body,
+            follow_redirects=True
+        )
+        return _build_proxy_response(response)
+    except Exception as e:
+        logger.error(f"Proxy tasks to warehouse error: {e}")
+        raise HTTPException(status_code=502, detail="Bad gateway")
+
+
 # ── WebSocket 代理: /ws/monitor → warehouse /ws/monitor ──────────
 
 @app.websocket("/ws/monitor")
@@ -265,6 +325,79 @@ async def ws_proxy_to_warehouse(websocket: WebSocket):
                 "type": "error",
                 "payload": {"message": f"网关无法连接到上游服务: {e}"},
                 "timestamp": None,
+            })
+            await websocket.close(code=1011, reason="upstream unavailable")
+        except Exception:
+            pass
+
+
+# ── WebSocket 代理: /ws/video/{drone_code} → warehouse /ws/video/{drone_code} ────
+# 与 /ws/monitor 不同：此代理支持 binary (JPEG 帧) + text (JSON 控制) 双模转发
+
+@app.websocket("/ws/video/{drone_id}")
+async def ws_video_proxy_to_warehouse(websocket: WebSocket, drone_id: int):
+    """
+    WebSocket 视频流代理: 无人机 → api-gateway → warehouse /ws/video/{drone_id}
+
+    双模转发：
+      - binary 帧 (JPEG 图像) → 原样转发为 bytes
+      - text 帧 (JSON 控制消息) → 原样转发为 text
+    任一端断开则关闭另一端。
+    """
+    service = SERVICES.get("warehouse")
+    target_url = f"{service['ws_url']}/ws/video/{drone_id}"
+
+    # 透传 query 参数 (task_code 等)
+    query_string = websocket.url.query
+    if query_string:
+        target_url = f"{target_url}?{query_string}"
+
+    await websocket.accept()
+
+    import websockets
+    try:
+        async with websockets.connect(target_url, ping_interval=20, ping_timeout=10) as upstream_ws:
+            logger.info(f"[WS-Video-Proxy] 已连接到上游: {target_url.split('?')[0]}")
+
+            async def forward_client_to_upstream():
+                """无人机 → 上游（支持 binary + text）"""
+                try:
+                    while True:
+                        msg = await websocket.receive()
+                        if msg["type"] == "websocket.disconnect":
+                            break
+                        if "bytes" in msg and msg["bytes"] is not None:
+                            await upstream_ws.send(msg["bytes"])
+                        elif "text" in msg and msg["text"] is not None:
+                            await upstream_ws.send(msg["text"])
+                except WebSocketDisconnect:
+                    pass
+                except Exception as e:
+                    logger.debug(f"[WS-Video-Proxy] client→upstream 异常: {e}")
+
+            async def forward_upstream_to_client():
+                """上游 → 无人机（支持 binary + text）"""
+                try:
+                    while True:
+                        msg = await upstream_ws.recv()
+                        if isinstance(msg, bytes):
+                            await websocket.send_bytes(msg)
+                        else:
+                            await websocket.send_text(msg)
+                except Exception as e:
+                    logger.debug(f"[WS-Video-Proxy] upstream→client 异常: {e}")
+
+            # 并行转发
+            await asyncio.gather(
+                forward_client_to_upstream(),
+                forward_upstream_to_client(),
+            )
+    except Exception as e:
+        logger.warning(f"[WS-Video-Proxy] 上游连接失败: {e}")
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "payload": {"message": f"网关无法连接到上游视频流服务: {e}"},
             })
             await websocket.close(code=1011, reason="upstream unavailable")
         except Exception:

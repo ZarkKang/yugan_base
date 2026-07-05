@@ -197,6 +197,7 @@ def get_workers_status() -> dict:
     status = {
         "gateway_queue": {"size": -1, "maxsize": -1, "started": False},
         "qr_engine": {"size": -1, "maxsize": -1, "started": False, "workers": 0},
+        "video_stream": {"active_sessions": 0, "total_frames_received": 0, "started": False},
     }
 
     # gateway 队列
@@ -226,6 +227,13 @@ def get_workers_status() -> dict:
             status["qr_engine"] = {"size": 0, "maxsize": 0, "started": False, "workers": 0}
     except Exception as e:
         logger.debug(f"[WS] 获取 qr_engine 状态失败: {e}")
+
+    # video_stream 聚合器
+    try:
+        from ..services.video_stream_aggregator import VideoStreamAggregator
+        status["video_stream"] = VideoStreamAggregator.get_instance().get_status()
+    except Exception as e:
+        logger.debug(f"[WS] 获取 video_stream 状态失败: {e}")
 
     return status
 

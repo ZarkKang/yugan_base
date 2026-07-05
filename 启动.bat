@@ -141,15 +141,13 @@ echo     [1] 启动无人机数据系统 (端口 %DRONE_PORT%)
 echo     [2] 启动仓库巡检系统 (端口 %WAREHOUSE_PORT%)
 echo     [3] 启动 API 网关 (端口 %GATEWAY_PORT%)
 echo     [4] 启动所有后端服务
-echo     [5] 启动桌面应用 (开发模式)
-echo     [6] 启动 Docker Compose
+echo     [5] 启动 Docker Compose
 echo.
 echo   管理:
-echo     [7] 查看服务状态
-echo     [8] 停止所有服务
-echo     [9] 查看日志
+echo     [6] 查看服务状态
+echo     [7] 停止所有服务
+echo     [8] 查看日志
 echo     [a] 初始化数据库
-echo     [b] 初始化桌面应用
 echo.
 echo   其他:
 echo     [0] 退出
@@ -159,13 +157,11 @@ if "%choice%"=="1" goto start_drone
 if "%choice%"=="2" goto start_warehouse
 if "%choice%"=="3" goto start_gateway
 if "%choice%"=="4" goto start_all
-if "%choice%"=="5" goto start_desktop
-if "%choice%"=="6" goto docker_start
-if "%choice%"=="7" goto show_status
-if "%choice%"=="8" goto stop_all
-if "%choice%"=="9" goto show_logs
+if "%choice%"=="5" goto docker_start
+if "%choice%"=="6" goto show_status
+if "%choice%"=="7" goto stop_all
+if "%choice%"=="8" goto show_logs
 if "%choice%"=="a" goto init_db
-if "%choice%"=="b" goto init_desktop
 if "%choice%"=="0" goto end
 echo 无效选择
 timeout /t 1 /nobreak >nul
@@ -222,17 +218,6 @@ echo   仓库前端:    file:///%ROOT_DIR:\=/%/warehouse-inspection-system/front
 echo.
 goto end
 
-:start_desktop
-echo [信息] 初始化桌面应用...
-cd /d "%ROOT_DIR%\desktop-app"
-if not exist "node_modules" (
-    echo [信息] 安装依赖...
-    call npm install
-)
-echo [信息] 启动桌面应用...
-call npm run dev
-goto end
-
 :: ── 停止命令 ────────────────────────────────
 :cmd_stop
 if "%2"=="all" goto stop_all
@@ -255,13 +240,6 @@ echo [信息] 正在停止所有服务...
 call :stop_port %DRONE_PORT%
 call :stop_port %WAREHOUSE_PORT%
 call :stop_port %GATEWAY_PORT%
-
-:: 停止 Electron 进程
-tasklist | findstr /I "electron" >nul 2>&1
-if not errorlevel 1 (
-    echo [信息] 停止桌面应用...
-    taskkill /F /IM electron.exe >nul 2>&1 || true
-)
 
 :: 停止 Docker
 if exist "docker-compose.yml" (
@@ -327,14 +305,6 @@ if errorlevel 1 (
     echo   API网关         [运行中]  端口 %GATEWAY_PORT%
 )
 
-:: Electron
-tasklist | findstr /I "electron" >nul 2>&1
-if not errorlevel 1 (
-    echo   桌面应用        [运行中]
-) else (
-    echo   桌面应用        [已停止]
-)
-
 :: Docker
 docker ps --format "  - {{.Names}}: {{.Status}}" --filter "name=yugan" 2>nul
 if not errorlevel 1 (
@@ -397,17 +367,6 @@ if not errorlevel 1 (
 ) else (
     echo [警告] 数据库连接不可用，将在后端启动时自动创建
 )
-cd /d "%ROOT_DIR%"
-goto end
-
-:: ── 初始化桌面应用 ─────────────────────────────
-:init_desktop
-cd /d "%ROOT_DIR%\desktop-app"
-if not exist "node_modules" (
-    echo [信息] 安装桌面应用依赖...
-    call npm install
-)
-echo [完成] 桌面应用已就绪
 cd /d "%ROOT_DIR%"
 goto end
 

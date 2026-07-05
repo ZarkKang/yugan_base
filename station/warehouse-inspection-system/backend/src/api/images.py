@@ -183,6 +183,9 @@ async def get_image_info(image_id: str, db: Session = Depends(get_db), current_u
         "inventory_status": record.inventory_status,
         "expected_sku": record.expected_sku,
         "inventory_message": record.inventory_message,
+        # QR 双图证据路径（2026-07 新增）
+        "qr_cropped_path": record.qr_cropped_path,
+        "annotated_path": record.annotated_path,
         "created_at": record.created_at.isoformat() if record.created_at else None,
         "processed_at": record.processed_at.isoformat() if record.processed_at else None,
         "error_message": record.error_message,

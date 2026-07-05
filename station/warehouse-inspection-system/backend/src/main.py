@@ -17,7 +17,9 @@ from .db.database import init_db, engine
 from .db.redis import redis_client
 from .db.seed import seed_data
 from .api import auth, inspection, drones, gateway, images, rfid, system, dashboard, shelves, skus, videos, inbound, drone_integration
+from .api import drone_api
 from .api import ws as ws_api
+from .api import ws_video as ws_video_api
 from .api.auth import get_current_user
 from .api.ws import get_broadcaster
 from .core.exceptions import (
@@ -110,6 +112,12 @@ async def lifespan(app: FastAPI):
         get_scheduler().stop()
     except Exception:
         pass
+    # 关闭所有未关闭的 WS 视频流会话
+    try:
+        from .services.video_stream_aggregator import VideoStreamAggregator
+        VideoStreamAggregator.get_instance().shutdown_all()
+    except Exception:
+        pass
     redis_client.disconnect()
     logger.info("应用已关闭")
 
@@ -189,6 +197,12 @@ app.include_router(videos.router, prefix="/api/v1")
 
 # WebSocket + 实时监控 (无前缀, WS 路径为 /ws/monitor; /system/workers 由 system.py 提供)
 app.include_router(ws_api.router)
+# WebSocket 视频流端点 (无前缀, WS 路径为 /ws/video/{drone_id})
+app.include_router(ws_video_api.router)
+
+# 无人机端 API 路由（无 JWT 认证，无人机直接调用）
+app.include_router(drone_api.router, prefix="/api/drones")
+app.include_router(drone_api.waypoints_router, prefix="/api")
 
 
 @app.get("/", response_class=HTMLResponse)

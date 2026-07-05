@@ -1,7 +1,7 @@
 
 # 域感智能 - Makefile
 
-.PHONY: help install build run clean stop logs drone warehouse gateway desktop docker
+.PHONY: help install build run clean stop logs drone warehouse gateway docker
 
 # 帮助信息
 help:
@@ -11,7 +11,6 @@ help:
 	@echo "  drone        - 启动无人机数据系统 (端口 8000)"
 	@echo "  warehouse    - 启动仓库巡检系统 (端口 8001)"
 	@echo "  gateway      - 启动 API 网关 (端口 8080)"
-	@echo "  desktop      - 启动桌面应用"
 	@echo "  docker       - 使用 Docker 启动所有服务"
 	@echo "  stop         - 停止 Docker 服务"
 	@echo "  logs         - 查看 Docker 日志"
@@ -24,8 +23,6 @@ install:
 	cd drone/drone-db-prototype/backend && pip install -r requirements.txt
 	cd station/warehouse-inspection-system/backend && pip install -r requirements.txt
 	cd app/api-gateway && pip install -r requirements.txt
-	@echo "正在安装 Node.js 依赖..."
-	cd app/desktop-app && npm install
 	@echo "依赖安装完成！"
 
 # 启动无人机数据系统
@@ -41,10 +38,6 @@ warehouse:
 # 启动 API 网关
 gateway:
 	cd app/api-gateway && uvicorn main:app --host 0.0.0.0 --port 8080 --reload
-
-# 启动桌面应用
-desktop:
-	cd app/desktop-app && npm run dev
 
 # Docker 相关
 docker:

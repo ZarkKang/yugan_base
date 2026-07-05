@@ -746,6 +746,7 @@ def _process_video_in_background(item: dict, db: Session):
         waypoint_id=waypoint_id,
         captured_at=datetime.utcnow(),
         processing_status="extracting",
+        source="gateway",
     )
     db.add(video_rec)
     db.commit()
@@ -753,76 +754,18 @@ def _process_video_in_background(item: dict, db: Session):
     logger.info("[Gateway] 视频已保存: id=%s size=%.1fMB (drone=%s, task=%s)",
                 video_rec.id, file_size / 1024 / 1024, drone_code, task_code)
 
-    # 3. 抽帧 + 分组 + 拼接 + QR识别 (懒导入避免cv2/libGL在启动时阻塞)
-    try:
-        from ..image.video_processor import process_video as process_video_file
-        qr_codes, frame_count, status = process_video_file(file_path)
-    except ImportError as e:
-        logger.error("[Gateway] 视频处理模块导入失败(可能缺少cv2/libGL): %s", e)
-        video_rec.processing_status = "failed"
-        video_rec.processing_error = f"视频处理模块不可用: {e}"
-        db.commit()
-        return
-    except Exception as e:
-        logger.error("[Gateway] 视频处理异常: %s", e, exc_info=True)
-        video_rec.processing_status = "failed"
-        video_rec.processing_error = str(e)
-        db.commit()
-        return
-
-    # 4. 更新 VideoData 记录
-    video_rec.frame_extracted = True
-    video_rec.frame_count = frame_count
-    video_rec.qr_codes_json = json.dumps(qr_codes, ensure_ascii=False)
-    video_rec.qr_recognized = bool(qr_codes)
-    video_rec.processing_status = status
-    if status == "failed":
-        video_rec.processing_error = "处理失败，详见日志"
-    db.commit()
-
-    # 5. 为每个识别到的QR码写 InventoryItem + 触发交叉校验
-    if qr_codes and task_code:
-        for qr_text in qr_codes:
-            inv_status, inv_msg = _classify_qr_inventory(
-                qr_text, expected_sku=meta.get("expected_sku"),
-                task_code=task_code, waypoint_id=waypoint_id, db=db
-            )
-            inv_item = InventoryItem(
-                sku=qr_text,
-                expected_sku=meta.get("expected_sku"),
-                expected_location=meta.get("expected_location", ""),
-                task_id=task_code,
-                waypoint_id=waypoint_id,
-                position_x=item.get("position_x"),
-                position_y=item.get("position_y"),
-                position_z=item.get("position_z"),
-                status=inv_status,
-                message=inv_msg,
-                confidence=0.8,
-                source_qr_data=qr_text,
-            )
-            db.add(inv_item)
-        db.commit()
-        logger.info("[Gateway] 视频QR识别写库存: %d 个 (video=%s, task=%s)",
-                    len(qr_codes), video_rec.id, task_code)
-
-        # 触发交叉校验
-        _cross_validate_qr_rfid(task_code, waypoint_id, qr_codes, rfid_epcs=None, db=db)
-
-    logger.info("[Gateway] 视频处理完成: id=%s frames=%d qr=%d status=%s",
-                video_rec.id, frame_count, len(qr_codes), status)
-
-    _broadcast("video_processed", {
-        "video_id": video_rec.id,
-        "drone_code": drone_code,
-        "task_code": task_code,
-        "waypoint_id": waypoint_id,
-        "frame_count": frame_count,
-        "qr_count": len(qr_codes),
-        "qr_codes": qr_codes[:10] if qr_codes else [],
-        "status": status,
-        "file_size_mb": round(file_size / 1024 / 1024, 2),
-    })
+    # 3. 抽帧 + 分组 + 拼接 + QR识别 + 写库存 + 交叉校验 + 广播
+    # 实际逻辑由 services.video_postprocess.postprocess_video 承载（与 videos.py 共用）
+    from ..services.video_postprocess import postprocess_video
+    postprocess_video(
+        file_path=file_path,
+        video_rec_id=video_rec.id,
+        task_code=task_code,
+        waypoint_id=waypoint_id,
+        expected_sku=meta.get("expected_sku"),
+        drone_code=drone_code,
+        source="gateway",
+    )
 
 
 def _process_image_in_background(item: dict, db: Session):
@@ -1250,104 +1193,4 @@ async def replay_failed_records(
         success=True,
         message=f"重放完成: {replayed}条成功, {skipped}条跳过, {failed}条失败",
         data={"replayed": replayed, "skipped": skipped, "failed": failed}
-    )
-
-
-@router.post("/shelves/sync", response_model=ShelfSyncResult)
-async def sync_shelves_from_drone(
-    payload: DroneShelfSyncRequest,
-    db: Session = Depends(get_db)
-):
-    """
-    接收无人机端推送的 shelves.yaml 货架数据，同步到基站数据库。
-
-    同步逻辑：
-    - yaml中有、DB中无（或已归档）→ 新增
-    - yaml中有、DB中有且活跃 → 更新位置等字段
-    - yaml中无、DB中有且活跃 → 标记归档（软删除，记录时间）
-
-    字段映射：
-    - shelf_id → shelf_code
-    - shelf_name → shelf_name
-    - position.x/y/z → position_x/y/z
-    - yaw_rad, arrival_radius_m, dwell_time_s → 同名字段
-    """
-    now = datetime.utcnow()
-
-    # 获取所有活跃货架
-    active_shelves = db.query(Shelf).filter(Shelf.archived_at.is_(None)).all()
-    active_codes = {s.shelf_code: s for s in active_shelves}
-
-    # yaml中的货架code集合
-    yaml_codes = set()
-
-    added = 0
-    updated = 0
-    added_codes = []
-    updated_codes = []
-
-    for item in payload.shelves:
-        code = item.shelf_id
-        yaml_codes.add(code)
-        pos = item.position or {}
-
-        existing = active_codes.get(code)
-        if existing:
-            # 更新现有货架
-            existing.shelf_name = item.shelf_name or existing.shelf_name
-            existing.position_x = float(pos.get("x", 0.0)) if pos else existing.position_x
-            existing.position_y = float(pos.get("y", 0.0)) if pos else existing.position_y
-            existing.position_z = float(pos.get("z", 0.0)) if pos else existing.position_z
-            existing.yaw_rad = item.yaw_rad if item.yaw_rad is not None else existing.yaw_rad
-            existing.arrival_radius_m = item.arrival_radius_m if item.arrival_radius_m is not None else existing.arrival_radius_m
-            existing.dwell_time_s = item.dwell_time_s if item.dwell_time_s is not None else existing.dwell_time_s
-            existing.last_synced_at = now
-            updated += 1
-            updated_codes.append(code)
-        else:
-            # 新增货架
-            new_shelf = Shelf(
-                shelf_code=code,
-                shelf_name=item.shelf_name or code,
-                position_x=float(pos.get("x", 0.0)) if pos else None,
-                position_y=float(pos.get("y", 0.0)) if pos else None,
-                position_z=float(pos.get("z", 0.0)) if pos else None,
-                yaw_rad=item.yaw_rad,
-                arrival_radius_m=item.arrival_radius_m,
-                dwell_time_s=item.dwell_time_s,
-                status="normal",
-                last_synced_at=now,
-            )
-            db.add(new_shelf)
-            added += 1
-            added_codes.append(code)
-
-    # 归档：DB中活跃但yaml中没有的货架
-    archived = 0
-    archived_codes = []
-    for code, shelf in active_codes.items():
-        if code not in yaml_codes:
-            shelf.status = "archived"
-            shelf.archived_at = now
-            archived += 1
-            archived_codes.append(code)
-
-    db.commit()
-
-    logger.info(
-        "[Gateway] 货架同步完成: 新增%d(%s) 更新%d(%s) 归档%d(%s)",
-        added, added_codes, updated, updated_codes, archived, archived_codes
-    )
-
-    return ShelfSyncResult(
-        added=added,
-        updated=updated,
-        archived=archived,
-        total=len(payload.shelves),
-        details={
-            "added_codes": added_codes,
-            "updated_codes": updated_codes,
-            "archived_codes": archived_codes,
-            "synced_at": now.isoformat(),
-        }
     )

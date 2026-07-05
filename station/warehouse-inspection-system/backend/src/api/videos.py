@@ -15,8 +15,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
-from ..db.database import get_db, SessionLocal
-from ..models.models import Drone, Task, User, VideoData, InventoryItem
+from ..db.database import get_db
+from ..models.models import Drone, Task, User, VideoData
 from ..schemas.schemas import APIResponse
 from .auth import get_current_user
 
@@ -31,84 +31,21 @@ os.makedirs(VIDEOS_DIR, exist_ok=True)
 def _process_video_background(file_path: str, video_rec: VideoData, drone_id: int,
                                drone_code: str, task_code: Optional[str],
                                waypoint_id: Optional[str], description: Optional[str]):
-    """后台线程: 抽帧 → 分组 → 拼接 → QR识别 → 写库存 → 交叉校验"""
-    db = SessionLocal()
-    try:
-        # 刷新 VideoData 对象（跨 Session）
-        video_rec = db.query(VideoData).filter(VideoData.id == video_rec.id).first()
-        if not video_rec:
-            logger.error("[VideoUpload] VideoData 记录不存在: %s", video_rec.id)
-            return
+    """后台线程入口: 抽帧 → 分组 → 拼接 → QR识别 → 写库存 → 交叉校验
 
-        # 1. 抽帧 + 分组 + 拼接 + QR识别
-        try:
-            from ..image.video_processor import process_video as process_video_file
-            qr_codes, frame_count, status = process_video_file(file_path)
-        except ImportError as e:
-            logger.error("[VideoUpload] 视频处理模块导入失败: %s", e)
-            video_rec.processing_status = "failed"
-            video_rec.processing_error = f"视频处理模块不可用: {e}"
-            db.commit()
-            return
-        except Exception as e:
-            logger.error("[VideoUpload] 视频处理异常: %s", e, exc_info=True)
-            video_rec.processing_status = "failed"
-            video_rec.processing_error = str(e)
-            db.commit()
-            return
-
-        # 2. 更新 VideoData 记录
-        video_rec.frame_extracted = True
-        video_rec.frame_count = frame_count
-        video_rec.qr_codes_json = json.dumps(qr_codes, ensure_ascii=False)
-        video_rec.qr_recognized = bool(qr_codes)
-        video_rec.processing_status = status
-        if status == "failed":
-            video_rec.processing_error = "处理失败，详见日志"
-        db.commit()
-
-        # 3. 为每个识别到的 QR 码写 InventoryItem
-        if qr_codes and task_code:
-            from ..api.gateway import _classify_qr_inventory, _cross_validate_qr_rfid
-            for qr_text in qr_codes:
-                inv_status, inv_msg = _classify_qr_inventory(
-                    qr_text, expected_sku=None,
-                    task_code=task_code, waypoint_id=waypoint_id, db=db
-                )
-                inv_item = InventoryItem(
-                    sku=qr_text,
-                    expected_sku=None,
-                    expected_location="",
-                    task_id=task_code,
-                    waypoint_id=waypoint_id,
-                    status=inv_status,
-                    message=inv_msg,
-                    confidence=0.8,
-                    source_qr_data=qr_text,
-                )
-                db.add(inv_item)
-            db.commit()
-            logger.info("[VideoUpload] QR识别写库存: %d 个 (video=%s, task=%s)",
-                        len(qr_codes), video_rec.id, task_code)
-
-            # 触发 QR×RFID 交叉校验
-            _cross_validate_qr_rfid(task_code, waypoint_id, qr_codes, rfid_epcs=None, db=db)
-
-        logger.info("[VideoUpload] 视频处理完成: id=%s frames=%d qr=%d status=%s",
-                    video_rec.id, frame_count, len(qr_codes), status)
-
-    except Exception as e:
-        logger.error("[VideoUpload] 后台视频处理失败: %s", e, exc_info=True)
-        try:
-            video_rec = db.query(VideoData).filter(VideoData.id == video_rec.id).first()
-            if video_rec:
-                video_rec.processing_status = "failed"
-                video_rec.processing_error = str(e)
-                db.commit()
-        except Exception:
-            pass
-    finally:
-        db.close()
+    实际逻辑由 services.video_postprocess.postprocess_video 承载（与 gateway 共用），
+    本函数仅作为线程入口的薄包装，保留原签名以兼容现有调用点。
+    """
+    from ..services.video_postprocess import postprocess_video
+    postprocess_video(
+        file_path=file_path,
+        video_rec_id=video_rec.id,
+        task_code=task_code,
+        waypoint_id=waypoint_id,
+        expected_sku=None,
+        drone_code=drone_code,
+        source="upload",
+    )
 
 
 @router.post("/upload", response_model=APIResponse)
@@ -193,6 +130,7 @@ async def upload_video(
         waypoint_id=wp_id,
         captured_at=datetime.utcnow(),
         processing_status="extracting",
+        source="upload",
     )
     db.add(video_rec)
     db.commit()
