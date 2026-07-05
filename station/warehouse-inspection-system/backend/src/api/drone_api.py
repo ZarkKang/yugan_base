@@ -308,6 +308,7 @@ def waypoint_arrive(drone_id: int, waypoint_id: str,
 
     # 尝试在活跃 WS 视频流中标记帧位置
     ws_marked = False
+    clip_result = {"scheduled": False, "position_warning": None, "message": ""}
     try:
         from ..services.video_stream_aggregator import VideoStreamAggregator
         aggregator = VideoStreamAggregator.get_instance()
@@ -317,10 +318,20 @@ def waypoint_arrive(drone_id: int, waypoint_id: str,
             expected_sku=waypoint.expected_sku,
             position=payload.position,
         )
+        # 调度 clip 截取
+        clip_result = aggregator.schedule_clip_capture(
+            drone_id=drone_id,
+            waypoint_id=waypoint_id,
+            expected_sku=waypoint.expected_sku,
+            position=payload.position,
+        )
     except Exception as e:
-        logger.debug(f"WS 帧标记失败（不影响航点到达处理）: {e}")
+        logger.debug(f"WS 帧标记/Clip 截取调度失败（不影响航点到达处理）: {e}")
 
-    logger.info(f"无人机 {drone.drone_code}(id={drone_id}) 到达航点 {waypoint_id}, ws_marked={ws_marked}")
+    logger.info(
+        f"无人机 {drone.drone_code}(id={drone_id}) 到达航点 {waypoint_id}, "
+        f"ws_marked={ws_marked}, clip_scheduled={clip_result.get('scheduled')}"
+    )
 
     return APIResponse(success=True, message="航点到达已确认", data={
         "waypoint_id": waypoint_id,
@@ -328,6 +339,9 @@ def waypoint_arrive(drone_id: int, waypoint_id: str,
         "expected_sku": waypoint.expected_sku,
         "scan_timeout": 30,
         "ws_frame_marked": ws_marked,
+        "clip_scheduled": clip_result.get("scheduled", False),
+        "clip_position_warning": clip_result.get("position_warning"),
+        "clip_message": clip_result.get("message"),
     })
 
 

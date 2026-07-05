@@ -126,8 +126,9 @@ RFID 读标签 → EPC hex
 | `upload` | 无人机 multipart 文件上传 | `POST /api/v1/videos/upload` | `videos.py:_process_video_background` → `postprocess_video(source="upload")` |
 | `gateway` | 无人机经 gateway Base64 上传 | `POST /api/warehouse/videos/...` | `gateway.py:_process_video_in_background` → `postprocess_video(source="gateway")` |
 | `ws_stream` | 无人机 WS 实时图传 | `WS /ws/video/{drone_id}` | `video_stream_aggregator.close_session()` → `postprocess_video(source="ws_stream")` |
+| `waypoint_clip` | 航点到达触发的视频截取片段 | `WS 推流中旁路截取` | `DroneStreamSession._finish_clip()` → `postprocess_video(source="waypoint_clip")` |
 
-三条通道最终汇入 `services/video_postprocess.postprocess_video()` 公共管线，保证 QR 识别 + InventoryItem 写入 + 交叉校验逻辑一致。
+四条通道最终汇入 `services/video_postprocess.postprocess_video()` 公共管线，保证 QR 识别 + InventoryItem 写入 + 交叉校验逻辑一致。
 
 ## 未来计划
 - Alembic 数据库迁移（当前未集成，P3 优先级）

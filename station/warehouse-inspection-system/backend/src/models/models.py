@@ -770,3 +770,16 @@ class NetworkScanResult(Base):
     verified = Column(Boolean, default=False, comment="是否已通过验证")
     registered = Column(Boolean, default=False, comment="是否已注册到系统")
     discovered_at = Column(DateTime, server_default=func.now(), index=True)
+
+
+class SystemConfig(Base):
+    """系统配置表 — 键值对持久化，替代硬编码和环境变量"""
+    __tablename__ = "system_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(100), unique=True, index=True, nullable=False, comment="配置键")
+    value = Column(Text, nullable=False, comment="配置值(字符串形式)")
+    value_type = Column(String(20), default="string", comment="值类型: string/integer/float/boolean/json")
+    description = Column(String(256), nullable=True, comment="配置说明")
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

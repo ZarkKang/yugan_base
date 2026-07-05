@@ -16,7 +16,7 @@ from .core.config import settings
 from .db.database import init_db, engine
 from .db.redis import redis_client
 from .db.seed import seed_data
-from .api import auth, inspection, drones, gateway, images, rfid, system, dashboard, shelves, skus, videos, inbound, drone_integration
+from .api import auth, inspection, drones, gateway, images, rfid, system, dashboard, shelves, skus, videos, inbound, drone_integration, system_config
 from .api import drone_api
 from .api import ws as ws_api
 from .api import ws_video as ws_video_api
@@ -194,6 +194,9 @@ app.include_router(drones.router, prefix="/api/v1")
 app.include_router(gateway.router, prefix="/api/v1")
 app.include_router(images.router, prefix="/api/v1")
 app.include_router(videos.router, prefix="/api/v1")
+
+# 系统配置 API（需 JWT 认证）
+app.include_router(system_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
 
 # WebSocket + 实时监控 (无前缀, WS 路径为 /ws/monitor; /system/workers 由 system.py 提供)
 app.include_router(ws_api.router)

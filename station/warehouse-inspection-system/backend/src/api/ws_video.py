@@ -150,11 +150,24 @@ async def ws_video_stream(
                         expected_sku=data.get("expected_sku"),
                         position=data.get("position"),
                     )
+                    # 调度 clip 截取
+                    clip_result = {"scheduled": False, "position_warning": None}
+                    try:
+                        clip_result = aggregator.schedule_clip_capture(
+                            drone_id=session.drone_id,
+                            waypoint_id=waypoint_id,
+                            expected_sku=data.get("expected_sku"),
+                            position=data.get("position"),
+                        )
+                    except Exception as e:
+                        logger.warning("[WSVideo] Clip 截取调度失败: %s", e)
                     await websocket.send_json({
                         "type": "waypoint_marked",
                         "payload": {
                             "waypoint_id": waypoint_id,
                             "frame_index": session.frame_count,
+                            "clip_scheduled": clip_result.get("scheduled", False),
+                            "clip_position_warning": clip_result.get("position_warning"),
                         },
                     })
 

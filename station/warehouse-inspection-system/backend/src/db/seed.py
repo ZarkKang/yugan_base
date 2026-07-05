@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from .database import SessionLocal
-from ..models.models import User, Drone
+from ..models.models import User, Drone, SystemConfig
 from ..core.security import get_password_hash, verify_password
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,18 @@ DEFAULT_DRONE = {
     "status": "offline",
     "battery_level": 100.0,
 }
+
+# 航点视频截取默认配置
+DEFAULT_CLIP_CONFIGS = [
+    {"key": "waypoint_clip_capture_enabled", "value": "true", "value_type": "boolean",
+     "description": "航点视频截取总开关"},
+    {"key": "waypoint_clip_capture_delay_seconds", "value": "0", "value_type": "float",
+     "description": "航点到达后延迟截取秒数"},
+    {"key": "waypoint_clip_capture_duration_seconds", "value": "10", "value_type": "float",
+     "description": "截取片段时长秒数"},
+    {"key": "waypoint_clip_position_tolerance_meters", "value": "0.2", "value_type": "float",
+     "description": "到达位置验证容差(米)"},
+]
 
 
 def _user_exists(db: Session, username: str) -> bool:
@@ -83,6 +95,13 @@ def seed_data() -> None:
             )
             db.add(drone)
             logger.info(f"✅ 测试无人机创建成功: {DEFAULT_DRONE['drone_code']}")
+
+        # 创建航点视频截取默认配置（幂等：ON CONFLICT DO NOTHING）
+        for cfg in DEFAULT_CLIP_CONFIGS:
+            exists = db.query(SystemConfig).filter(SystemConfig.key == cfg["key"]).first()
+            if exists is None:
+                db.add(SystemConfig(**cfg))
+                logger.info(f"✅ 系统配置创建: {cfg['key']}={cfg['value']}")
 
         db.commit()
     except Exception as e:

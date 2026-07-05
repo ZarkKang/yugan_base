@@ -357,6 +357,7 @@
         <div class="nav-item" data-page="drone_integration"><span class="icon">◉</span> 无人机整合</div>
         <div class="nav-item" data-page="rfid_dashboard"><span class="icon">▦</span> RFID看板</div>
         <div class="nav-item" data-page="rfid_settings"><span class="icon">⊞</span> RFID设置</div>
+        <div class="nav-item" data-page="clip_settings"><span class="icon">◐</span> 截取设置</div>
     </nav>
     <div class="sidebar-footer">
         <div class="avatar" id="sb-avatar">A</div>
@@ -575,7 +576,7 @@ const pageTitles = {
     dashboard:'实时看板', drones:'无人机管理', tasks:'巡检任务', records:'巡检记录', inbound:'入库管理',
     shelves:'货架管理', skus:'SKU管理', images:'图像管理', videos:'视频管理',
     gateway:'数据网关', system:'系统状态', rfid_settings:'RFID设置', drone_integration:'无人机整合',
-    rfid_dashboard:'RFID看板'
+    rfid_dashboard:'RFID看板', clip_settings:'截取设置'
 };
 
 function navigate(name) {
@@ -2465,6 +2466,92 @@ async function diLoadLogs() {
                 <td>${badge(l.status)}</td>
             </tr>`).join('') : '<tr class="empty-row"><td colspan="5">暂无通信日志</td></tr>';
     } catch(e) { /* ignore */ }
+}
+
+// ═══════════════════ PAGE: CLIP SETTINGS ═══════════════════
+async function render_clip_settings(el) {
+    el.innerHTML = `
+    <div class="panel">
+        <h3 style="margin:0 0 12px;">航点视频截取配置</h3>
+        <div id="cs-status" style="margin-bottom:12px;color:var(--text-muted);font-size:13px;">加载中...</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div class="form-group" style="grid-column:1/-1;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="checkbox" id="cs-enabled" style="width:18px;height:18px;">
+                    <span>航点视频截取开关</span>
+                </label>
+            </div>
+            <div class="form-group">
+                <label>截取延迟（秒）<br><small style="color:var(--text-muted)">航点到达后多久开始截取</small></label>
+                <input type="number" id="cs-delay" min="0" max="60" step="0.5" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);">
+            </div>
+            <div class="form-group">
+                <label>截取时长（秒）<br><small style="color:var(--text-muted)">截取多久后停止</small></label>
+                <input type="number" id="cs-duration" min="1" max="120" step="1" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);">
+            </div>
+            <div class="form-group" style="grid-column:1/-1;">
+                <label>位置容差（米）<br><small style="color:var(--text-muted)">到达位置验证的允许偏差，超过此值仅记录警告不阻断截取</small></label>
+                <input type="number" id="cs-tolerance" min="0" max="10" step="0.05" style="width:120px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);">
+            </div>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:10px;">
+            <button onclick="saveClipConfig()" style="padding:8px 24px;border:none;border-radius:6px;background:var(--primary);color:#fff;cursor:pointer;">💾 保存配置</button>
+            <button onclick="resetClipConfig()" style="padding:8px 24px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);cursor:pointer;">↩ 重置默认</button>
+        </div>
+    </div>
+    <div class="panel" style="margin-top:12px;">
+        <h3 style="margin:0 0 8px;">功能说明</h3>
+        <ul style="margin:0;padding-left:20px;color:var(--text-muted);font-size:13px;line-height:1.8;">
+            <li>当无人机通过 HTTP 或 WS 消息通知航点到达时，自动从 WS 实时图传流中截取一段视频</li>
+            <li>截取的视频片段保存为独立的 VideoData 记录（source=waypoint_clip），自动触发 QR 识别后处理</li>
+            <li>位置容差用于验证无人机实际到达位置与航点预期位置的偏差，超差仅记录警告，不阻断截取</li>
+            <li>延迟截取适用于需要等待设备稳定后再抓取的场景</li>
+        </ul>
+    </div>`;
+    await loadClipConfig();
+}
+
+async function loadClipConfig() {
+    try {
+        const res = await api(`${API}/config/clip`);
+        document.getElementById('cs-enabled').checked = res.capture_enabled;
+        document.getElementById('cs-delay').value = res.capture_delay_seconds;
+        document.getElementById('cs-duration').value = res.capture_duration_seconds;
+        document.getElementById('cs-tolerance').value = res.position_tolerance_meters;
+        document.getElementById('cs-status').textContent = '✅ 配置已加载';
+        document.getElementById('cs-status').style.color = 'var(--success)';
+    } catch(e) {
+        document.getElementById('cs-status').textContent = '❌ 加载失败: ' + (e.message || e);
+        document.getElementById('cs-status').style.color = 'var(--error)';
+    }
+}
+
+async function saveClipConfig() {
+    const payload = {
+        capture_enabled: document.getElementById('cs-enabled').checked,
+        capture_delay_seconds: parseFloat(document.getElementById('cs-delay').value),
+        capture_duration_seconds: parseFloat(document.getElementById('cs-duration').value),
+        position_tolerance_meters: parseFloat(document.getElementById('cs-tolerance').value),
+    };
+    try {
+        await api(`${API}/config/clip`, { method: 'PUT', body: JSON.stringify(payload) });
+        toast('截取配置已保存');
+        document.getElementById('cs-status').textContent = '✅ 配置已保存';
+        document.getElementById('cs-status').style.color = 'var(--success)';
+    } catch(e) {
+        toast('保存失败: ' + (e.message || e), 'error');
+    }
+}
+
+async function resetClipConfig() {
+    if (!confirm('确定重置为默认值？')) return;
+    try {
+        await api(`${API}/config/clip/reset`, { method: 'POST' });
+        toast('已重置为默认值');
+        await loadClipConfig();
+    } catch(e) {
+        toast('重置失败: ' + (e.message || e), 'error');
+    }
 }
 
 // ═══════════════════ INIT ═══════════════════

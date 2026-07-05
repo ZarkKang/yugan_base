@@ -35,6 +35,18 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS ix_video_data_stream_session ON video_data (stream_session_id)",
     # 索引（加速按 source 过滤查询）
     "CREATE INDEX IF NOT EXISTS ix_video_data_source ON video_data (source)",
+
+    # ── 2026-07-06: 系统配置表 (SystemConfig) ──
+    "CREATE TABLE IF NOT EXISTS system_configs ("
+    "  id SERIAL PRIMARY KEY,"
+    "  key VARCHAR(100) UNIQUE NOT NULL,"
+    "  value TEXT NOT NULL,"
+    "  value_type VARCHAR(20) DEFAULT 'string',"
+    "  description VARCHAR(256),"
+    "  created_at TIMESTAMP DEFAULT NOW(),"
+    "  updated_at TIMESTAMP DEFAULT NOW()"
+    ")",
+    "CREATE INDEX IF NOT EXISTS ix_system_configs_key ON system_configs (key)",
 ]
 
 

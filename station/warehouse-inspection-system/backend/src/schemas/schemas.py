@@ -443,6 +443,22 @@ class NetworkVerifyResponse(BaseModel):
     summary: str
 
 
+class ClipCaptureConfigRequest(BaseModel):
+    """航点视频截取配置请求"""
+    capture_enabled: Optional[bool] = Field(None, description="截取总开关")
+    capture_delay_seconds: Optional[float] = Field(None, ge=0, le=60, description="延迟截取秒数")
+    capture_duration_seconds: Optional[float] = Field(None, ge=1, le=120, description="截取时长秒数")
+    position_tolerance_meters: Optional[float] = Field(None, ge=0, le=10, description="位置容差(米)")
+
+
+class ClipCaptureConfigResponse(BaseModel):
+    """航点视频截取配置响应"""
+    capture_enabled: bool
+    capture_delay_seconds: float
+    capture_duration_seconds: float
+    position_tolerance_meters: float
+
+
 class CommunicationLogResponse(BaseModel):
     """通信日志响应"""
     id: int

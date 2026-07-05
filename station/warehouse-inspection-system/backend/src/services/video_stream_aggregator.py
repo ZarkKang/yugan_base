@@ -5,14 +5,17 @@ WebSocket 视频流聚合器
 会话结束时创建 VideoData 记录并触发 postprocess_video 后处理。
 
 核心类:
-  - DroneStreamSession: 单无人机会话，含帧缓冲 + writer 线程 + 航点标记数组
+  - ClipWriterContext: 航点视频截取上下文
+  - DroneStreamSession: 单无人机会话，含帧缓冲 + writer 线程 + 航点标记 + clip 旁路写入
   - VideoStreamAggregator: 单例管理器，管理所有活跃会话
 
 线程模型:
   - WS receive 循环 (async) → push_frame (sync, 线程安全 queue.put)
   - writer_thread (sync, 守护) → 从 frame_buffer 取帧 → cv2.VideoWriter 写入
   - close_session (sync) → join writer_thread → 创建 VideoData → 启动 postprocess 线程
+  - clip 旁路: _feed_clips() 在 writer_thread 中同步写入 clip VideoWriter
 """
+import math
 import os
 import cv2
 import json
@@ -21,6 +24,7 @@ import queue
 import uuid
 import logging
 import threading
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, List, Tuple
 
@@ -39,6 +43,25 @@ VIDEOS_DIR = os.path.join(STORAGE_ROOT, "videos")
 DEFAULT_FPS = int(os.environ.get("WS_VIDEO_FPS", "15"))
 WRITER_THREAD_JOIN_TIMEOUT = 10.0  # writer_thread join 超时（秒）
 MAX_FRAME_BUFFER = 300  # 帧缓冲最大长度（防止内存溢出，约 20s @15fps）
+MAX_ACTIVE_CLIPS_PER_SESSION = 1  # 每个 session 最多同时活跃的 clip 数
+
+
+@dataclass
+class ClipWriterContext:
+    """航点视频截取上下文 — 每个活跃 clip 持有一个独立 VideoWriter"""
+    waypoint_id: str
+    writer: cv2.VideoWriter
+    output_path: str
+    fps: int
+    max_frames: int       # = capture_duration_seconds * fps
+    frames_written: int = 0
+    start_time: Optional[datetime] = None
+    expected_sku: Optional[str] = None
+    task_code: Optional[str] = None
+    drone_id: int = 0
+    drone_code: str = ""
+    position: Optional[dict] = None
+    position_warning: Optional[str] = None
 
 
 class DroneStreamSession:
@@ -72,6 +95,10 @@ class DroneStreamSession:
         # 航点标记数组：[{waypoint_id, frame_index, timestamp, expected_sku, position}, ...]
         self.waypoint_markers: List[dict] = []
         self._markers_lock = threading.Lock()
+
+        # 航点视频截取：活跃 clip writer（最多 MAX_ACTIVE_CLIPS_PER_SESSION 个）
+        self._clip_writers: Dict[str, ClipWriterContext] = {}
+        self._clip_lock = threading.Lock()
 
         # writer 线程控制
         self.stop_event = threading.Event()
@@ -125,6 +152,197 @@ class DroneStreamSession:
             self.session_id, waypoint_id, marker["frame_index"],
         )
 
+    # ── 航点视频截取 ──────────────────────────────────────────
+
+    def start_clip_capture(
+        self,
+        waypoint_id: str,
+        expected_sku: Optional[str] = None,
+        duration_seconds: float = 10.0,
+        position: Optional[dict] = None,
+        position_warning: Optional[str] = None,
+    ) -> Tuple[bool, str]:
+        """开始截取 clip — 创建独立 VideoWriter
+
+        Args:
+            waypoint_id: 航点 ID
+            expected_sku: 预期 SKU
+            duration_seconds: 截取时长（秒）
+            position: 到达位置
+            position_warning: 位置校验警告
+
+        Returns:
+            (success, message)
+        """
+        if self.stop_event.is_set():
+            return False, "会话已关闭，无法截取"
+
+        with self._clip_lock:
+            if len(self._clip_writers) >= MAX_ACTIVE_CLIPS_PER_SESSION:
+                return False, f"当前已有 {len(self._clip_writers)} 个活跃截取，达到上限"
+            if waypoint_id in self._clip_writers:
+                return False, f"航点 {waypoint_id} 已在截取中"
+
+        # 输出路径: 与主流同目录，文件名含航点 ID
+        clip_dir = os.path.dirname(self.output_path)
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        clip_filename = f"clip_{waypoint_id}_{ts}.mp4"
+        clip_path = os.path.join(clip_dir, clip_filename)
+
+        # VideoWriter 将在首帧到达时创建（与主流同机制）
+        # 但这里我们预创建一个占位 context，首帧时初始化 writer
+        ctx = ClipWriterContext(
+            waypoint_id=waypoint_id,
+            writer=None,  # 首帧时创建
+            output_path=clip_path,
+            fps=self.fps,
+            max_frames=int(duration_seconds * self.fps),
+            start_time=datetime.utcnow(),
+            expected_sku=expected_sku,
+            task_code=self.task_code,
+            drone_id=self.drone_id,
+            drone_code=self.drone_code,
+            position=position,
+            position_warning=position_warning,
+        )
+
+        with self._clip_lock:
+            self._clip_writers[waypoint_id] = ctx
+
+        logger.info(
+            "[WSVideo] Clip 截取已启动: session=%s waypoint=%s duration=%.1fs max_frames=%d",
+            self.session_id, waypoint_id, duration_seconds, ctx.max_frames,
+        )
+        return True, f"截取已启动，时长 {duration_seconds}s"
+
+    def _feed_clips(self, img: "np.ndarray") -> None:
+        """将一帧同步喂给所有活跃 clip writer — 在 _writer_loop 中调用
+
+        首帧时创建 VideoWriter（需要帧尺寸）。
+        写满 max_frames 后自动 _finish_clip()。
+        """
+        finished_keys: List[str] = []
+
+        with self._clip_lock:
+            for wp_id, ctx in self._clip_writers.items():
+                try:
+                    # 首帧 → 创建 VideoWriter
+                    if ctx.writer is None:
+                        h, w = img.shape[:2]
+                        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                        ctx.writer = cv2.VideoWriter(ctx.output_path, fourcc, ctx.fps, (w, h))
+                        if not ctx.writer.isOpened():
+                            logger.error("[WSVideo] Clip VideoWriter 打开失败: %s", ctx.output_path)
+                            finished_keys.append(wp_id)
+                            continue
+                        logger.info(
+                            "[WSVideo] Clip VideoWriter 已创建: %s (%dx%d @%dfps)",
+                            ctx.output_path, w, h, ctx.fps,
+                        )
+
+                    ctx.writer.write(img)
+                    ctx.frames_written += 1
+
+                    # 写满 → 标记完成
+                    if ctx.frames_written >= ctx.max_frames:
+                        finished_keys.append(wp_id)
+                except Exception as e:
+                    logger.error("[WSVideo] Clip 写帧异常: wp=%s err=%s", wp_id, e)
+                    finished_keys.append(wp_id)
+
+        # 在锁外处理完成的 clip（避免嵌套锁）
+        for wp_id in finished_keys:
+            self._finish_clip(wp_id)
+
+    def _finish_clip(self, waypoint_id: str) -> None:
+        """结束单个 clip: 关闭 writer → 创建 VideoData → 触发后处理"""
+        with self._clip_lock:
+            ctx = self._clip_writers.pop(waypoint_id, None)
+        if ctx is None:
+            return
+
+        # 关闭 VideoWriter
+        if ctx.writer is not None:
+            try:
+                ctx.writer.release()
+            except Exception:
+                pass
+
+        # 无帧写入 → 删除空文件
+        if ctx.frames_written == 0:
+            logger.warning("[WSVideo] Clip 无帧写入: wp=%s", waypoint_id)
+            try:
+                if os.path.exists(ctx.output_path):
+                    os.remove(ctx.output_path)
+            except Exception:
+                pass
+            return
+
+        logger.info(
+            "[WSVideo] Clip 截取完成: wp=%s frames=%d path=%s",
+            waypoint_id, ctx.frames_written, ctx.output_path,
+        )
+
+        # 创建 VideoData 记录 + 触发后处理
+        try:
+            file_size = os.path.getsize(ctx.output_path) if os.path.exists(ctx.output_path) else 0
+            description_dict = {
+                "clip_type": "waypoint_arrival",
+                "expected_sku": ctx.expected_sku,
+                "position": ctx.position,
+                "position_warning": ctx.position_warning,
+            }
+
+            db = SessionLocal()
+            try:
+                video_rec = VideoData(
+                    file_name=os.path.basename(ctx.output_path),
+                    file_path=ctx.output_path,
+                    file_size=file_size,
+                    drone_id=ctx.drone_id,
+                    task_code=ctx.task_code,
+                    waypoint_id=ctx.waypoint_id,  # clip 绑定到具体航点
+                    captured_at=ctx.start_time,
+                    processing_status="extracting",
+                    source="waypoint_clip",
+                    stream_session_id=self.session_id,
+                    frame_rate_actual=ctx.fps,
+                    waypoint_markers=None,
+                    description=json.dumps(description_dict, ensure_ascii=False),
+                )
+                db.add(video_rec)
+                db.commit()
+                db.refresh(video_rec)
+                video_rec_id = video_rec.id
+                logger.info(
+                    "[WSVideo] Clip VideoData 已创建: id=%s wp=%s frames=%d",
+                    video_rec_id, waypoint_id, ctx.frames_written,
+                )
+            except Exception as e:
+                logger.error("[WSVideo] 创建 Clip VideoData 失败: %s", e, exc_info=True)
+                return
+            finally:
+                db.close()
+
+            # 启动后处理线程
+            from ..services.video_postprocess import postprocess_video
+            t = threading.Thread(
+                target=postprocess_video,
+                args=(ctx.output_path, video_rec_id),
+                kwargs={
+                    "task_code": ctx.task_code,
+                    "waypoint_id": ctx.waypoint_id,
+                    "expected_sku": ctx.expected_sku,
+                    "drone_code": ctx.drone_code,
+                    "source": "waypoint_clip",
+                },
+                daemon=True,
+            )
+            t.start()
+            logger.info("[WSVideo] Clip 后处理线程已启动: video_id=%s wp=%s", video_rec_id, waypoint_id)
+        except Exception as e:
+            logger.error("[WSVideo] Clip 结束处理异常: wp=%s err=%s", waypoint_id, e, exc_info=True)
+
     def _writer_loop(self) -> None:
         """writer 线程主循环：从 frame_buffer 取帧 → cv2.VideoWriter 写入
 
@@ -162,6 +380,9 @@ class DroneStreamSession:
 
                 writer.write(img)
                 self.frame_count += 1
+
+                # 旁路写入活跃 clip writer
+                self._feed_clips(img)
             except Exception as e:
                 logger.error("[WSVideo] 写帧异常: %s", e, exc_info=True)
 
@@ -176,6 +397,8 @@ class DroneStreamSession:
                 if img is not None and writer is not None:
                     writer.write(img)
                     self.frame_count += 1
+                    # 旁路写入活跃 clip writer
+                    self._feed_clips(img)
             except Exception:
                 pass
 
@@ -376,13 +599,122 @@ class VideoStreamAggregator:
             False 表示无活跃会话（不影响业务，视频后处理时会补）
         """
         with self._sessions_lock:
-            for session in self._sessions.values():
+            for session in self._sessions:
                 if session.drone_id == drone_id:
                     session.mark_waypoint(waypoint_id, expected_sku, position)
                     logger.info("[WSVideo] HTTP 触发帧标记: drone_id=%d wp=%s frame=%d",
                                 drone_id, waypoint_id, session.frame_count)
                     return True
         return False
+
+    def schedule_clip_capture(
+        self,
+        drone_id: int,
+        waypoint_id: str,
+        expected_sku: Optional[str] = None,
+        position: Optional[dict] = None,
+    ) -> dict:
+        """航点到达时调度 clip 截取
+
+        流程:
+          1. 读取截取配置（从 DB 或默认值）
+          2. 检查总开关 capture_enabled
+          3. 位置校验（软验证：超差仅记录警告，不阻断截取）
+          4. 查找活跃 WS 会话
+          5. 若 capture_delay_seconds > 0，启动延迟定时器
+          6. 调用 session.start_clip_capture()
+
+        Returns:
+            {"scheduled": bool, "position_warning": str|None, "message": str}
+        """
+        from ..services.clip_config import get_clip_config
+        from ..models.models import Waypoint
+
+        # 1. 读取配置
+        db = SessionLocal()
+        try:
+            config = get_clip_config(db)
+        finally:
+            db.close()
+
+        # 2. 检查总开关
+        if not config.get("waypoint_clip_capture_enabled", True):
+            return {"scheduled": False, "position_warning": None, "message": "截取功能已关闭"}
+
+        duration = config.get("waypoint_clip_capture_duration_seconds", 10.0)
+        delay = config.get("waypoint_clip_capture_delay_seconds", 0.0)
+        tolerance = config.get("waypoint_clip_position_tolerance_meters", 0.2)
+
+        # 3. 位置校验
+        position_warning = None
+        if position:
+            db = SessionLocal()
+            try:
+                wp = db.query(Waypoint).filter(Waypoint.id == waypoint_id).first()
+                if wp and (wp.position_x is not None or wp.position_y is not None or wp.position_z is not None):
+                    wp_pos = {"x": wp.position_x or 0, "y": wp.position_y or 0, "z": wp.position_z or 0}
+                    dist = math.sqrt(
+                        (position.get("x", 0) - wp_pos["x"]) ** 2 +
+                        (position.get("y", 0) - wp_pos["y"]) ** 2 +
+                        (position.get("z", 0) - wp_pos["z"]) ** 2
+                    )
+                    if dist > tolerance:
+                        position_warning = f"位置偏差 {dist:.2f}m 超过容差 {tolerance}m"
+                        logger.warning("[WSVideo] %s (drone=%d wp=%s)", position_warning, drone_id, waypoint_id)
+            finally:
+                db.close()
+
+        # 4. 查找活跃 WS 会话
+        target_session: Optional[DroneStreamSession] = None
+        with self._sessions_lock:
+            for session in self._sessions:
+                if session.drone_id == drone_id:
+                    target_session = session
+                    break
+
+        if target_session is None:
+            return {
+                "scheduled": False,
+                "position_warning": position_warning,
+                "message": "无活跃 WS 视频流会话",
+            }
+
+        # 5-6. 启动截取（考虑延迟）
+        def _do_capture(session: DroneStreamSession, wp_id: str, sku: Optional[str],
+                        dur: float, pos: Optional[dict], warn: Optional[str]):
+            if session.stop_event.is_set():
+                logger.warning("[WSVideo] 延迟截取取消（会话已关闭）: wp=%s", wp_id)
+                return
+            ok, msg = session.start_clip_capture(
+                waypoint_id=wp_id,
+                expected_sku=sku,
+                duration_seconds=dur,
+                position=pos,
+                position_warning=warn,
+            )
+            if not ok:
+                logger.warning("[WSVideo] Clip 截取启动失败: wp=%s reason=%s", wp_id, msg)
+
+        if delay > 0:
+            timer = threading.Timer(
+                delay,
+                _do_capture,
+                args=[target_session, waypoint_id, expected_sku, duration, position, position_warning],
+            )
+            timer.daemon = True
+            timer.start()
+            logger.info(
+                "[WSVideo] Clip 截取已调度（延迟 %.1fs）: drone=%d wp=%s duration=%.1fs",
+                delay, drone_id, waypoint_id, duration,
+            )
+        else:
+            _do_capture(target_session, waypoint_id, expected_sku, duration, position, position_warning)
+
+        return {
+            "scheduled": True,
+            "position_warning": position_warning,
+            "message": f"截取已调度，时长 {duration}s" + (f"，延迟 {delay}s" if delay > 0 else ""),
+        }
 
     # ── 状态查询（供 ws.get_workers_status 使用）──────────────
 
