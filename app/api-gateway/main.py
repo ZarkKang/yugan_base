@@ -67,12 +67,12 @@ client: Optional[httpx.AsyncClient] = None
 # 本地: 仓库根目录
 if IS_DOCKER:
     STATIC_ROOT = Path("/station/warehouse-inspection-system/frontend")
-    DRONE_FRONTEND_DIR = Path("/drone/drone-db-prototype/frontend")
+    DRONE_FRONTEND_DIR = Path("/drone/drone-db-prototype/frontend/src")
     APP_FRONTEND_DIR = Path("/app_root")
 else:
     _repo_root = Path(__file__).resolve().parent.parent.parent
     STATIC_ROOT = _repo_root / "station" / "warehouse-inspection-system" / "frontend"
-    DRONE_FRONTEND_DIR = _repo_root / "drone" / "drone-db-prototype" / "frontend"
+    DRONE_FRONTEND_DIR = _repo_root / "drone" / "drone-db-prototype" / "frontend" / "src"
     APP_FRONTEND_DIR = _repo_root / "app"
 
 

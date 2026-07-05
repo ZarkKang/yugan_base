@@ -5,6 +5,7 @@ from PIL import Image
 import io
 from datetime import datetime
 import logging
+import base64
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +135,7 @@ class QRCodeService:
                 
                 result['cropped_images'].append({
                     'index': i,
-                    'data': cropped
+                    'data': base64.b64encode(cropped).decode('ascii')
                 })
         
         return result

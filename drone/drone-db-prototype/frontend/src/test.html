@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>域感智能 - 功能测试工具</title>
+<style>
+:root {
+  --primary: #667eea;
+  --primary-dark: #764ba2;
+  --primary-light: #8b9cf7;
+  --bg: #f0f2f5;
+  --card-bg: #fff;
+  --text: #333;
+  --text-secondary: #666;
+  --text-muted: #999;
+  --border: #e2e8f0;
+  --success: #52c41a;
+  --error: #f5222d;
+  --warn: #faad14;
+  --info: #1890ff;
+  --radius: 8px;
+  --shadow: 0 2px 8px rgba(0,0,0,0.08);
+  --shadow-hover: 0 4px 16px rgba(0,0,0,0.12);
+  --font: -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',Roboto,Helvetica,Arial,sans-serif;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:var(--font); background:var(--bg); color:var(--text); min-height:100vh; }
+
+/* Header */
+.app-header {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #fff;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.app-header h1 { font-size: 20px; font-weight: 600; }
+.app-header .auth-info { font-size: 13px; opacity: 0.9; }
+.app-header .auth-info .token-status { display:inline-flex; align-items:center; gap:4px; }
+.app-header .auth-info .dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+.dot-idle { background:#aaa; }
+.dot-ok { background:var(--success); }
+.dot-err { background:var(--error); }
+
+/* Tabs */
+.tab-nav {
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  overflow-x: auto;
+  padding: 0 16px;
+}
+.tab-nav a {
+  padding: 12px 20px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+.tab-nav a:hover { color: var(--primary); }
+.tab-nav a.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 500; }
+
+/* Main */
+.main-container { max-width: 960px; margin: 0 auto; padding: 20px 16px 40px; }
+.tab-page { display: none; }
+.tab-page.active { display: block; }
+
+/* Card */
+.card {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-title .icon { font-size: 18px; }
+
+/* Form */
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 6px; }
+.form-group input[type="text"],
+.form-group input[type="number"],
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: var(--font);
+  transition: border-color 0.2s;
+  outline: none;
+}
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus { border-color: var(--primary); }
+.form-group textarea { min-height: 80px; resize: vertical; }
+
+/* Radio group */
+.radio-group { display: flex; gap: 16px; margin-top: 6px; }
+.radio-group label { display: flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+.radio-group input[type="radio"] { accent-color: var(--primary); }
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 20px;
+  border: none; border-radius: 6px;
+  font-size: 14px; font-family: var(--font);
+  cursor: pointer; transition: all 0.2s;
+  font-weight: 500;
+}
+.btn-primary { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color:#fff; }
+.btn-primary:hover { opacity:0.9; transform:translateY(-1px); }
+.btn-primary:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
+.btn-outline { background:transparent; border:1px solid var(--border); color:var(--text-secondary); }
+.btn-outline:hover { border-color:var(--primary); color:var(--primary); }
+.btn-danger { background:var(--error); color:#fff; }
+.btn-danger:hover { opacity:0.9; }
+.btn-sm { padding:5px 12px; font-size:12px; }
+.btn-group { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+
+/* Upload zone */
+.upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 32px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+.upload-zone:hover,
+.upload-zone.dragover {
+  border-color: var(--primary);
+  background: rgba(102,126,234,0.04);
+}
+.upload-zone .icon { font-size: 36px; color: var(--text-muted); margin-bottom: 8px; }
+.upload-zone .text { font-size: 14px; color: var(--text-secondary); }
+.upload-zone .hint { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+.upload-zone input[type="file"] { display: none; }
+
+/* Preview */
+.preview-area { margin-top: 12px; text-align: center; }
+.preview-area img { max-width: 100%; max-height: 240px; border-radius: 6px; border: 1px solid var(--border); }
+.preview-area video { max-width: 100%; max-height: 280px; border-radius: 6px; }
+
+/* Progress */
+.progress-bar { width:100%; height:6px; background:var(--border); border-radius:3px; overflow:hidden; margin-top:8px; display:none; }
+.progress-bar.active { display:block; }
+.progress-bar .fill { height:100%; background:linear-gradient(90deg,var(--primary),var(--primary-dark)); border-radius:3px; transition:width 0.3s; width:0%; }
+.progress-text { font-size:12px; color:var(--text-muted); margin-top:4px; display:none; }
+
+/* Results */
+.result-card {
+  background: #fafbfc;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px;
+  margin-top: 12px;
+}
+.result-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px; font-size: 13px;
+}
+.result-header .time { color: var(--text-muted); }
+.result-header .status { display:flex; align-items:center; gap:4px; font-weight:500; }
+.result-body { font-size: 13px; }
+.result-body pre {
+  background: #1e1e2e; color: #cdd6f4;
+  padding: 12px; border-radius: 6px;
+  overflow-x: auto; font-size: 12px; line-height: 1.5;
+  margin-top: 8px;
+}
+.badge {
+  display: inline-flex; align-items: center;
+  padding: 2px 10px; border-radius: 12px;
+  font-size: 12px; font-weight: 500;
+}
+.badge-success { background:#f6ffed; color:var(--success); border:1px solid #b7eb8f; }
+.badge-warn { background:#fffbe6; color:#d48806; border:1px solid #ffe58f; }
+.badge-error { background:#fff2f0; color:var(--error); border:1px solid #ffccc7; }
+.badge-info { background:#e6f7ff; color:var(--info); border:1px solid #91d5ff; }
+
+.qr-list { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+.qr-item { display:flex; align-items:center; gap:6px; }
+.qr-item .badge { cursor:pointer; }
+
+/* Toast */
+.toast-container { position:fixed; top:16px; right:16px; z-index:9999; display:flex; flex-direction:column; gap:8px; }
+.toast {
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  animation: slideIn 0.3s ease;
+  max-width: 340px;
+  word-break: break-word;
+}
+.toast-success { background:var(--success); }
+.toast-error { background:var(--error); }
+.toast-warn { background:var(--warn); color:#333; }
+.toast-info { background:var(--info); }
+@keyframes slideIn { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+
+/* Footer */
+.app-footer { text-align:center; padding:20px; font-size:13px; }
+.app-footer a { color:var(--primary); text-decoration:none; }
+.app-footer a:hover { text-decoration:underline; }
+
+/* Responsive */
+@media(max-width:640px) {
+  .app-header { padding:12px 16px; }
+  .app-header h1 { font-size:17px; }
+  .tab-nav a { padding:10px 14px; font-size:13px; }
+  .main-container { padding:12px 10px 32px; }
+  .card { padding:14px; }
+  .upload-zone { padding:20px 12px; }
+}
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--muted);border-radius:50%;border-top-color:var(--primary);animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.info-table{width:auto;border-collapse:collapse;margin-top:6px}
+.info-table td{padding:4px 12px 4px 0;font-size:13px;border-bottom:1px solid var(--border)}
+.info-table .info-key{color:var(--text2);white-space:nowrap;font-weight:500;min-width:80px}
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <h1>域感智能 - 功能测试工具</h1>
+  <div class="auth-info">
+    <span class="token-status"><span class="dot dot-idle" id="authDot"></span> <span id="authText">未认证</span></span>
+  </div>
+</header>
+
+<nav class="tab-nav" id="tabNav">
+  <a href="#qr" data-tab="qr">QR码识别测试</a>
+  <a href="#video" data-tab="video">视频上传测试</a>
+  <a href="#gateway" data-tab="gateway">网关数据发送测试</a>
+  <a href="#database" data-tab="database">基站数据库测试</a>
+</nav>
+
+<div class="main-container">
+
+  <!-- Tab 1: QR码识别测试 -->
+  <div class="tab-page" id="page-qr">
+    <div class="card">
+      <div class="card-title"><span class="icon">&#128248;</span> QR码识别测试</div>
+      <div class="form-group">
+        <label>选择图片</label>
+        <div class="upload-zone" id="qrDropZone" onclick="document.getElementById('qrFileInput').click()">
+          <div class="icon">&#128196;</div>
+          <div class="text">点击或拖拽图片文件</div>
+          <div class="hint">支持 PNG / JPG</div>
+          <input type="file" id="qrFileInput" accept="image/png,image/jpeg">
+        </div>
+        <div class="preview-area" id="qrPreview"></div>
+      </div>
+      <div class="form-group">
+        <label>测试模式</label>
+        <div class="radio-group">
+          <label><input type="radio" name="qrMode" value="gateway" checked> 网关QR识别</label>
+          <label><input type="radio" name="qrMode" value="upload"> 图片上传识别</label>
+        </div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" id="qrTestBtn" onclick="runQrTest()">执行测试</button>
+        <button class="btn btn-outline" onclick="clearResults('qr')">清空结果</button>
+      </div>
+    </div>
+    <div id="qrResults"></div>
+  </div>
+
+  <!-- Tab 2: 视频上传测试 -->
+  <div class="tab-page" id="page-video">
+    <div class="card">
+      <div class="card-title"><span class="icon">&#127909;</span> 视频上传测试</div>
+      <div class="form-group">
+        <label>选择视频</label>
+        <div class="upload-zone" id="videoDropZone" onclick="document.getElementById('videoFileInput').click()">
+          <div class="icon">&#127916;</div>
+          <div class="text">点击或拖拽视频文件</div>
+          <div class="hint">支持 MP4 / AVI</div>
+          <input type="file" id="videoFileInput" accept="video/mp4,video/avi,video/x-msvideo">
+        </div>
+        <div class="preview-area" id="videoPreview"></div>
+      </div>
+      <div class="progress-bar" id="videoProgress"><div class="fill" id="videoProgressFill"></div></div>
+      <div class="progress-text" id="videoProgressText"></div>
+      <div class="btn-group">
+        <button class="btn btn-primary" id="videoTestBtn" onclick="runVideoTest()">上传视频</button>
+        <button class="btn btn-outline" onclick="clearResults('video')">清空结果</button>
+      </div>
+    </div>
+    <div id="videoResults"></div>
+  </div>
+
+  <!-- Tab 3: 网关数据发送测试 -->
+  <div class="tab-page" id="page-gateway">
+    <div class="card">
+      <div class="card-title"><span class="icon">&#128225;</span> 网关数据发送测试</div>
+      <div class="form-group">
+        <label>数据类型</label>
+        <select id="gwDataType" onchange="onGwDataTypeChange()">
+          <option value="qr_code">qr_code</option>
+          <option value="image">image</option>
+          <option value="video">video</option>
+          <option value="rfid">rfid</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>drone_code</label>
+        <input type="text" id="gwDroneCode" value="DRONE001">
+      </div>
+      <div class="form-group">
+        <label>task_code</label>
+        <input type="text" id="gwTaskCode" value="TEST_TASK">
+      </div>
+      <div class="form-group">
+        <label>waypoint_id</label>
+        <input type="text" id="gwWaypointId" value="" placeholder="可选，留空则不关联航点">
+      </div>
+      <div id="gwPayloadQr" class="form-group">
+        <label>QR数据</label>
+        <input type="text" id="gwQrData" placeholder="输入QR码内容">
+      </div>
+      <div id="gwPayloadImage" class="form-group" style="display:none">
+        <label>图片文件</label>
+        <div class="upload-zone" id="gwImageDropZone" onclick="document.getElementById('gwImageInput').click()">
+          <div class="icon">&#128196;</div>
+          <div class="text">点击或拖拽图片文件</div>
+          <input type="file" id="gwImageInput" accept="image/png,image/jpeg">
+        </div>
+      </div>
+      <div id="gwPayloadVideo" class="form-group" style="display:none">
+        <label>视频文件</label>
+        <div class="upload-zone" id="gwVideoDropZone" onclick="document.getElementById('gwVideoInput').click()">
+          <div class="icon">&#127916;</div>
+          <div class="text">点击或拖拽视频文件</div>
+          <input type="file" id="gwVideoInput" accept="video/mp4,video/avi,video/x-msvideo">
+        </div>
+        <div id="gwVideoWarning" style="display:none;color:var(--warn);font-size:12px;margin-top:4px;">文件较大，Base64编码可能耗时较长</div>
+      </div>
+      <div id="gwPayloadRfid" class="form-group" style="display:none">
+        <label>RFID EPC数组 (JSON)</label>
+        <textarea id="gwRfidData" placeholder='[{"epc":"E2003412B802011860600393","rssi_dbm":-62}]'></textarea>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" id="gwTestBtn" onclick="runGatewayTest()">发送数据</button>
+        <button class="btn btn-outline" onclick="clearResults('gateway')">清空结果</button>
+      </div>
+    </div>
+    <div id="gatewayResults"></div>
+  </div>
+
+  <!-- Tab 4: 基站数据库测试 -->
+  <div class="tab-page" id="page-database">
+    <div class="card">
+      <div class="card-title"><span class="icon">&#128451;</span> 图片上传测试</div>
+      <div class="form-group">
+        <label>选择图片</label>
+        <div class="upload-zone" id="dbImageDropZone" onclick="document.getElementById('dbImageInput').click()">
+          <div class="icon">&#128196;</div>
+          <div class="text">点击或拖拽图片文件</div>
+          <input type="file" id="dbImageInput" accept="image/png,image/jpeg">
+        </div>
+        <div class="preview-area" id="dbImagePreview"></div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="runDbImageTest()">上传图片</button>
+        <button class="btn btn-outline" onclick="clearResults('dbImage')">清空结果</button>
+      </div>
+    </div>
+    <div id="dbImageResults"></div>
+
+    <div class="card">
+      <div class="card-title"><span class="icon">&#127909;</span> 视频上传测试</div>
+      <div class="form-group">
+        <label>选择视频</label>
+        <div class="upload-zone" id="dbVideoDropZone" onclick="document.getElementById('dbVideoInput').click()">
+          <div class="icon">&#127916;</div>
+          <div class="text">点击或拖拽视频文件</div>
+          <input type="file" id="dbVideoInput" accept="video/mp4,video/avi,video/x-msvideo">
+        </div>
+        <div class="preview-area" id="dbVideoPreview"></div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="runDbVideoTest()">上传视频</button>
+        <button class="btn btn-outline" onclick="clearResults('dbVideo')">清空结果</button>
+      </div>
+    </div>
+    <div id="dbVideoResults"></div>
+
+    <div class="card">
+      <div class="card-title"><span class="icon">&#128270;</span> QR识别测试</div>
+      <div class="form-group">
+        <label>选择图片</label>
+        <div class="upload-zone" id="dbQrDropZone" onclick="document.getElementById('dbQrInput').click()">
+          <div class="icon">&#128196;</div>
+          <div class="text">点击或拖拽图片文件</div>
+          <input type="file" id="dbQrInput" accept="image/png,image/jpeg">
+        </div>
+        <div class="preview-area" id="dbQrPreview"></div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="runDbQrTest()">执行QR识别</button>
+        <button class="btn btn-outline" onclick="clearResults('dbQr')">清空结果</button>
+      </div>
+    </div>
+    <div id="dbQrResults"></div>
+  </div>
+
+</div>
+
+<div class="app-footer"><a href="index.html">&larr; 返回基站数据库</a></div>
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// ==================== CONFIG ====================
+const CONFIG = {
+  DRONE_API: `http://${window.location.hostname}:8000/api`,
+  WAREHOUSE_API: `http://${window.location.hostname}:8001/api/v1`,
+  GATEWAY_API: `http://${window.location.hostname}:8080`,
+};
+
+let authToken = null;
+
+// ==================== TOAST ====================
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.getElementById('toastContainer').appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// ==================== AUTH ====================
+async function ensureAuth() {
+  // Check URL token
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlToken = urlParams.get('token');
+  if (urlToken) {
+    authToken = urlToken;
+    localStorage.setItem('drone_db_token', authToken);
+  }
+  // Check localStorage
+  if (!authToken) {
+    authToken = localStorage.getItem('drone_db_token');
+  }
+  if (authToken) {
+    updateAuthUI(true);
+    return;
+  }
+  // Auto-login
+  try {
+    const host = window.location.hostname;
+    await fetch(`http://${host}:8000/api/auth/ensure-admin`, { method: 'POST' });
+    const loginRes = await fetch(`http://${host}:8000/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'username=admin&password=admin',
+    });
+    const data = await loginRes.json();
+    if (data.access_token) {
+      authToken = data.access_token;
+      localStorage.setItem('drone_db_token', authToken);
+      updateAuthUI(true);
+      toast('自动登录成功', 'success');
+    } else {
+      throw new Error(data.message || '登录失败');
+    }
+  } catch (e) {
+    updateAuthUI(false);
+    toast('自动登录失败: ' + e.message, 'error');
+  }
+}
+
+function updateAuthUI(ok) {
+  const dot = document.getElementById('authDot');
+  const txt = document.getElementById('authText');
+  if (ok) {
+    dot.className = 'dot dot-ok';
+    txt.textContent = '已认证';
+  } else {
+    dot.className = 'dot dot-err';
+    txt.textContent = '未认证';
+  }
+}
+
+// ==================== API HELPER ====================
+async function apiFetch(url, options = {}) {
+  const headers = options.headers || {};
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+  const startTime = performance.now();
+  let response;
+  try {
+    response = await fetch(url, { ...options, headers });
+  } catch (e) {
+    const elapsed = Math.round(performance.now() - startTime);
+    throw { error: e.message, elapsed };
+  }
+  const elapsed = Math.round(performance.now() - startTime);
+  if (response.status === 401) {
+    localStorage.removeItem('drone_db_token');
+    authToken = null;
+    await ensureAuth();
+    if (authToken) {
+      headers['Authorization'] = `Bearer ${authToken}`;
+      const retry = await fetch(url, { ...options, headers });
+      const retryElapsed = Math.round(performance.now() - startTime);
+      return { data: await retry.json().catch(() => ({})), status: retry.status, elapsed: retryElapsed };
+    }
+  }
+  const data = await response.json().catch(() => ({}));
+  return { data, status: response.status, elapsed };
+}
+
+// ==================== FILE HELPERS ====================
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(2) + ' MB';
+}
+
+// ==================== DRAG & DROP ====================
+function setupDropZone(zoneId, inputId, previewCallback) {
+  const zone = document.getElementById(zoneId);
+  const input = document.getElementById(inputId);
+  if (!zone || !input) return;
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault(); zone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) {
+      input.files = e.dataTransfer.files;
+      input.dispatchEvent(new Event('change'));
+    }
+  });
+  if (previewCallback) {
+    input.addEventListener('change', () => {
+      if (input.files.length) previewCallback(input.files[0]);
+    });
+  }
+}
+
+function showImagePreview(containerId, file) {
+  const c = document.getElementById(containerId);
+  if (!c) return;
+  const url = URL.createObjectURL(file);
+  c.innerHTML = `<img src="${url}" alt="preview">`;
+}
+
+function showVideoPreview(containerId, file) {
+  const c = document.getElementById(containerId);
+  if (!c) return;
+  const url = URL.createObjectURL(file);
+  c.innerHTML = `<video src="${url}" controls></video>`;
+}
+
+// ==================== RESULTS RENDERING ====================
+function renderResult(containerId, { success, title, elapsed, data, error }) {
+  const c = document.getElementById(containerId);
+  const statusBadge = success
+    ? '<span class="badge badge-success">成功</span>'
+    : '<span class="badge badge-error">失败</span>';
+  const timeStr = elapsed != null ? `${elapsed}ms` : '';
+  const body = error
+    ? `<div style="color:var(--error)">${escHtml(error)}</div>`
+    : renderResultBody(data);
+  c.innerHTML = `
+    <div class="result-card">
+      <div class="result-header">
+        <span class="status">${statusBadge} ${escHtml(title || '')}</span>
+        <span class="time">${timeStr}</span>
+      </div>
+      <div class="result-body">${body}</div>
+    </div>`;
+}
+
+function renderResultBody(data) {
+  if (!data) return '';
+  // QR codes
+  if (data.codes && Array.isArray(data.codes)) {
+    let html = '<div>识别到的QR码:</div><div class="qr-list">';
+    if (data.codes.length === 0) {
+      html += '<span class="badge badge-warn">未识别到二维码</span>';
+    } else {
+      data.codes.forEach(code => {
+        html += `<div class="qr-item"><span class="badge badge-success">${escHtml(code)}</span><button class="btn btn-sm btn-outline" onclick="copyText('${escHtml(code)}')">复制</button></div>`;
+      });
+    }
+    html += '</div>';
+    if (data.message) html += `<div style="margin-top:8px;color:var(--text-muted)">${escHtml(data.message)}</div>`;
+    html += `<pre>${escHtml(JSON.stringify(data, null, 2))}</pre>`;
+    return html;
+  }
+  // QR process result
+  if (data.data && data.data.qr_codes) {
+    const qrData = data.data;
+    let html = '';
+    if (qrData.has_qr) {
+      html += `<div>识别到 ${qrData.qr_codes.length} 个QR码:</div><div class="qr-list">`;
+      qrData.qr_codes.forEach(q => {
+        html += `<div class="qr-item"><span class="badge badge-success">${escHtml(q.data)}</span><button class="btn btn-sm btn-outline" onclick="copyText('${escHtml(q.data)}')">复制</button></div>`;
+      });
+      html += '</div>';
+    } else {
+      html += '<span class="badge badge-warn">未识别到二维码</span>';
+    }
+    html += `<pre>${escHtml(JSON.stringify(data, null, 2))}</pre>`;
+    return html;
+  }
+  // Generic
+  return `<pre>${escHtml(JSON.stringify(data, null, 2))}</pre>`;
+}
+
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function clearResults(tab) {
+  const map = {
+    qr: 'qrResults', video: 'videoResults', gateway: 'gatewayResults',
+    dbImage: 'dbImageResults', dbVideo: 'dbVideoResults', dbQr: 'dbQrResults',
+  };
+  const el = document.getElementById(map[tab]);
+  if (el) el.innerHTML = '';
+}
+
+function copyText(text) {
+  navigator.clipboard.writeText(text).then(() => toast('已复制', 'success')).catch(() => toast('复制失败', 'error'));
+}
+
+// ==================== TAB 1: QR TEST ====================
+async function runQrTest() {
+  const fileInput = document.getElementById('qrFileInput');
+  if (!fileInput.files.length) { toast('请先选择图片', 'warn'); return; }
+  const file = fileInput.files[0];
+  const mode = document.querySelector('input[name="qrMode"]:checked').value;
+  const btn = document.getElementById('qrTestBtn');
+  btn.disabled = true;
+
+  try {
+    if (mode === 'gateway') {
+      const base64 = await readFileAsDataURL(file);
+      const { data, status, elapsed } = await apiFetch(`${CONFIG.WAREHOUSE_API}/gateway/qrcode/process`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_base64: base64 }),
+      });
+      const ok = status >= 200 && status < 300 && data.success !== false;
+      renderResult('qrResults', {
+        success: ok, title: '网关QR识别', elapsed,
+        data: data,
+        error: ok ? null : (data.message || `HTTP ${status}`),
+      });
+    } else {
+      const fd = new FormData();
+      fd.append('image', file);
+      fd.append('drone_code', 'TEST_DRONE');
+      fd.append('task_code', 'TEST_TASK');
+      fd.append('waypoint_id', '');
+      const { data, status, elapsed } = await apiFetch(`${CONFIG.WAREHOUSE_API}/images/upload`, {
+        method: 'POST',
+        body: fd,
+      });
+      const ok = status >= 200 && status < 300 && data.success !== false;
+      renderResult('qrResults', {
+        success: ok, title: '图片上传识别', elapsed,
+        data: data,
+        error: ok ? null : (data.message || `HTTP ${status}`),
+      });
+    }
+  } catch (e) {
+    renderResult('qrResults', { success: false, title: 'QR测试', elapsed: e.elapsed, data: null, error: e.error });
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ==================== TAB 2: VIDEO UPLOAD ====================
+function runVideoTest() {
+  const fileInput = document.getElementById('videoFileInput');
+  if (!fileInput.files.length) { toast('请先选择视频', 'warn'); return; }
+  const file = fileInput.files[0];
+  const btn = document.getElementById('videoTestBtn');
+  btn.disabled = true;
+
+  const fd = new FormData();
+  fd.append('video', file);
+  fd.append('drone_code', 'TEST_DRONE');
+  fd.append('task_code', 'TEST_TASK');
+  fd.append('description', '功能测试上传');
+
+  const progressBar = document.getElementById('videoProgress');
+  const progressFill = document.getElementById('videoProgressFill');
+  const progressText = document.getElementById('videoProgressText');
+  progressBar.classList.add('active');
+  progressText.style.display = 'block';
+  progressFill.style.width = '0%';
+
+  const startTime = performance.now();
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', `${CONFIG.WAREHOUSE_API}/videos/upload`);
+  if (authToken) xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) {
+      const pct = Math.round((e.loaded / e.total) * 100);
+      progressFill.style.width = pct + '%';
+      progressText.textContent = `上传进度: ${pct}% (${formatSize(e.loaded)} / ${formatSize(e.total)})`;
+    }
+  };
+
+  xhr.onload = () => {
+    const elapsed = Math.round(performance.now() - startTime);
+    progressBar.classList.remove('active');
+    progressText.style.display = 'none';
+    btn.disabled = false;
+    let data;
+    try { data = JSON.parse(xhr.responseText); } catch { data = {}; }
+    const ok = xhr.status >= 200 && xhr.status < 300 && data.success !== false;
+    renderResult('videoResults', {
+      success: ok, title: '视频上传', elapsed,
+      data, error: ok ? null : (data.message || `HTTP ${xhr.status}`),
+    });
+    // 上传成功后轮询处理状态
+    if (ok && data.data && data.data.video_id) {
+      pollVideoStatus(data.data.video_id);
+    }
+  };
+
+  xhr.onerror = () => {
+    const elapsed = Math.round(performance.now() - startTime);
+    progressBar.classList.remove('active');
+    progressText.style.display = 'none';
+    btn.disabled = false;
+    renderResult('videoResults', { success: false, title: '视频上传', elapsed, data: null, error: '网络错误' });
+  };
+
+  xhr.send(fd);
+}
+
+// 轮询视频处理状态，完成后展示完整结果
+function pollVideoStatus(videoId) {
+  const container = document.getElementById('videoResults');
+  // 添加处理状态卡片
+  const statusId = 'videoProcessing_' + videoId;
+  container.insertAdjacentHTML('beforeend', `
+    <div class="result-card" id="${statusId}">
+      <div class="result-header"><span class="badge badge-info">处理中</span> 视频抽帧+QR识别</div>
+      <div class="result-body"><div style="display:flex;align-items:center;gap:8px"><span class="spinner"></span>正在抽帧识别，请稍候...</div></div>
+    </div>
+  `);
+
+  let attempts = 0;
+  const maxAttempts = 30; // 最多轮询30次，约30秒
+  const interval = setInterval(async () => {
+    attempts++;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+      const res = await fetch(`${CONFIG.WAREHOUSE_API}/videos/${videoId}`, { headers });
+      const json = await res.json();
+      if (!json.success) { clearInterval(interval); return; }
+      const vd = json.data;
+      if (vd.processing_status === 'completed' || vd.processing_status === 'failed') {
+        clearInterval(interval);
+        renderVideoProcessingResult(statusId, vd);
+      } else if (attempts >= maxAttempts) {
+        clearInterval(interval);
+        document.getElementById(statusId).innerHTML = `
+          <div class="result-header"><span class="badge badge-warn">超时</span> 视频处理</div>
+          <div class="result-body">处理超时，当前状态: ${escHtml(vd.processing_status)}</div>`;
+      }
+    } catch (e) {
+      if (attempts >= maxAttempts) { clearInterval(interval); }
+    }
+  }, 1000);
+}
+
+// 渲染视频处理结果
+function renderVideoProcessingResult(containerId, vd) {
+  const statusBadge = vd.processing_status === 'completed'
+    ? '<span class="badge badge-success">完成</span>'
+    : '<span class="badge badge-error">失败</span>';
+  const qrHtml = vd.qr_recognized && vd.qr_codes && vd.qr_codes.length
+    ? `<div style="margin-top:8px"><b>识别到的QR码:</b></div>
+       <div class="qr-list">${vd.qr_codes.map(q =>
+         `<div class="qr-item"><span class="badge badge-success">${escHtml(q)}</span>
+          <button class="btn btn-sm btn-outline" onclick="copyText('${escHtml(q)}')">复制</button></div>`
+       ).join('')}</div>`
+    : '<div style="margin-top:8px"><span class="badge badge-warn">未识别到QR码</span></div>';
+  const infoRows = [
+    ['处理状态', vd.processing_status],
+    ['抽帧数', vd.frame_count || 0],
+    ['QR识别', vd.qr_recognized ? `是 (${(vd.qr_codes||[]).length}个)` : '否'],
+    ['任务编号', vd.task_code || '-'],
+    ['无人机ID', vd.drone_id || '-'],
+  ];
+  if (vd.processing_error) infoRows.push(['错误信息', vd.processing_error]);
+
+  document.getElementById(containerId).innerHTML = `
+    <div class="result-header">${statusBadge} 视频抽帧+QR识别结果</div>
+    <div class="result-body">
+      <table class="info-table">${infoRows.map(([k,v]) =>
+        `<tr><td class="info-key">${k}</td><td>${escHtml(String(v))}</td></tr>`
+      ).join('')}</table>
+      ${qrHtml}
+      <details style="margin-top:8px"><summary>原始数据</summary>
+        <pre>${escHtml(JSON.stringify(vd, null, 2))}</pre>
+      </details>
+    </div>`;
+}
+
+// ==================== TAB 3: GATEWAY SEND ====================
+function onGwDataTypeChange() {
+  const type = document.getElementById('gwDataType').value;
+  document.getElementById('gwPayloadQr').style.display = type === 'qr_code' ? '' : 'none';
+  document.getElementById('gwPayloadImage').style.display = type === 'image' ? '' : 'none';
+  document.getElementById('gwPayloadVideo').style.display = type === 'video' ? '' : 'none';
+  document.getElementById('gwPayloadRfid').style.display = type === 'rfid' ? '' : 'none';
+}
+
+async function runGatewayTest() {
+  const type = document.getElementById('gwDataType').value;
+  const droneCode = document.getElementById('gwDroneCode').value || 'DRONE001';
+  const taskCode = document.getElementById('gwTaskCode').value || 'TEST_TASK';
+  const waypointId = document.getElementById('gwWaypointId').value || '';
+  const btn = document.getElementById('gwTestBtn');
+  btn.disabled = true;
+
+  let payload;
+  try {
+    switch (type) {
+      case 'qr_code':
+        payload = document.getElementById('gwQrData').value;
+        if (!payload) { toast('请输入QR数据', 'warn'); btn.disabled = false; return; }
+        break;
+      case 'image': {
+        const input = document.getElementById('gwImageInput');
+        if (!input.files.length) { toast('请选择图片文件', 'warn'); btn.disabled = false; return; }
+        payload = await readFileAsDataURL(input.files[0]);
+        break;
+      }
+      case 'video': {
+        const input = document.getElementById('gwVideoInput');
+        if (!input.files.length) { toast('请选择视频文件', 'warn'); btn.disabled = false; return; }
+        if (input.files[0].size > 10485760) toast('文件超过10MB，编码可能较慢', 'warn');
+        payload = await readFileAsDataURL(input.files[0]);
+        break;
+      }
+      case 'rfid': {
+        const raw = document.getElementById('gwRfidData').value;
+        if (!raw) { toast('请输入RFID数据', 'warn'); btn.disabled = false; return; }
+        try { payload = JSON.parse(raw); } catch { toast('RFID数据格式错误', 'error'); btn.disabled = false; return; }
+        payload = JSON.stringify(payload);
+        break;
+      }
+    }
+  } catch (e) {
+    toast('文件读取失败: ' + e.message, 'error');
+    btn.disabled = false;
+    return;
+  }
+
+  const body = {
+    drone_code: droneCode,
+    data_type: type,
+    payload: payload,
+    metadata: { task_code: taskCode, waypoint_id: waypointId },
+  };
+
+  try {
+    const { data, status, elapsed } = await apiFetch(`${CONFIG.WAREHOUSE_API}/gateway/receive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const ok = status >= 200 && status < 300 && data.success !== false;
+    renderResult('gatewayResults', {
+      success: ok, title: `网关发送 (${type})`, elapsed,
+      data, error: ok ? null : (data.message || `HTTP ${status}`),
+    });
+  } catch (e) {
+    renderResult('gatewayResults', { success: false, title: `网关发送 (${type})`, elapsed: e.elapsed, data: null, error: e.error });
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ==================== TAB 4: DB TESTS ====================
+async function runDbImageTest() {
+  const input = document.getElementById('dbImageInput');
+  if (!input.files.length) { toast('请先选择图片', 'warn'); return; }
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  fd.append('drone_id', '1');
+  fd.append('description', '功能测试');
+  try {
+    const { data, status, elapsed } = await apiFetch(`${CONFIG.DRONE_API}/images/`, { method: 'POST', body: fd });
+    const ok = status >= 200 && status < 300;
+    renderResult('dbImageResults', { success: ok, title: 'DB图片上传', elapsed, data, error: ok ? null : (data.message || `HTTP ${status}`) });
+  } catch (e) {
+    renderResult('dbImageResults', { success: false, title: 'DB图片上传', elapsed: e.elapsed, data: null, error: e.error });
+  }
+}
+
+async function runDbVideoTest() {
+  const input = document.getElementById('dbVideoInput');
+  if (!input.files.length) { toast('请先选择视频', 'warn'); return; }
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  fd.append('drone_id', '1');
+  fd.append('description', '功能测试');
+  try {
+    const { data, status, elapsed } = await apiFetch(`${CONFIG.DRONE_API}/videos/`, { method: 'POST', body: fd });
+    const ok = status >= 200 && status < 300;
+    renderResult('dbVideoResults', { success: ok, title: 'DB视频上传', elapsed, data, error: ok ? null : (data.message || `HTTP ${status}`) });
+  } catch (e) {
+    renderResult('dbVideoResults', { success: false, title: 'DB视频上传', elapsed: e.elapsed, data: null, error: e.error });
+  }
+}
+
+async function runDbQrTest() {
+  const input = document.getElementById('dbQrInput');
+  if (!input.files.length) { toast('请先选择图片', 'warn'); return; }
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  try {
+    const { data, status, elapsed } = await apiFetch(`${CONFIG.DRONE_API}/admin/qr/process`, { method: 'POST', body: fd });
+    const ok = status >= 200 && status < 300 && data.success !== false;
+    renderResult('dbQrResults', { success: ok, title: 'DB QR识别', elapsed, data, error: ok ? null : (data.message || `HTTP ${status}`) });
+  } catch (e) {
+    renderResult('dbQrResults', { success: false, title: 'DB QR识别', elapsed: e.elapsed, data: null, error: e.error });
+  }
+}
+
+// ==================== ROUTING ====================
+function navigate(hash) {
+  const tab = (hash || '#qr').replace('#', '');
+  document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-nav a').forEach(a => a.classList.remove('active'));
+  const page = document.getElementById('page-' + tab);
+  const link = document.querySelector(`.tab-nav a[data-tab="${tab}"]`);
+  if (page) page.classList.add('active');
+  if (link) link.classList.add('active');
+  window.location.hash = '#' + tab;
+}
+
+// ==================== GW FILE SIZE WARNING ====================
+document.getElementById('gwVideoInput').addEventListener('change', function() {
+  const warn = document.getElementById('gwVideoWarning');
+  if (this.files.length && this.files[0].size > 10485760) {
+    warn.style.display = '';
+  } else {
+    warn.style.display = 'none';
+  }
+});
+
+// ==================== INIT ====================
+(function init() {
+  // Routing
+  navigate(window.location.hash);
+  document.querySelectorAll('.tab-nav a').forEach(a => {
+    a.addEventListener('click', (e) => { e.preventDefault(); navigate(a.getAttribute('href')); });
+  });
+  window.addEventListener('hashchange', () => navigate(window.location.hash));
+
+  // Drop zones - QR tab
+  setupDropZone('qrDropZone', 'qrFileInput', (file) => showImagePreview('qrPreview', file));
+  // Video tab
+  setupDropZone('videoDropZone', 'videoFileInput', (file) => showVideoPreview('videoPreview', file));
+  // Gateway tab
+  setupDropZone('gwImageDropZone', 'gwImageInput');
+  setupDropZone('gwVideoDropZone', 'gwVideoInput');
+  // DB tab
+  setupDropZone('dbImageDropZone', 'dbImageInput', (file) => showImagePreview('dbImagePreview', file));
+  setupDropZone('dbVideoDropZone', 'dbVideoInput', (file) => showVideoPreview('dbVideoPreview', file));
+  setupDropZone('dbQrDropZone', 'dbQrInput', (file) => showImagePreview('dbQrPreview', file));
+
+  // Auth
+  ensureAuth();
+})();
+</script>
+</body>
+</html>

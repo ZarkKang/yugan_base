@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from ..core.database import get_db
@@ -13,11 +13,11 @@ router = APIRouter(prefix="/api/images", tags=["图片数据"])
 @router.post("/", response_model=ImageDataResponse)
 async def upload_image(
     file: UploadFile = File(...),
-    drone_id: Optional[int] = None,
-    latitude: Optional[float] = None,
-    longitude: Optional[float] = None,
-    altitude: Optional[float] = None,
-    description: Optional[str] = None,
+    drone_id: Optional[int] = Form(None),
+    latitude: Optional[float] = Form(None),
+    longitude: Optional[float] = Form(None),
+    altitude: Optional[float] = Form(None),
+    description: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -57,7 +57,7 @@ async def upload_image(
 def list_images(
     skip: int = 0,
     limit: int = 100,
-    drone_id: Optional[int] = None,
+    drone_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):

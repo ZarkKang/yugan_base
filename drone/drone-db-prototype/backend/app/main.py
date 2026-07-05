@@ -18,6 +18,7 @@ from .routers import (
     images_router,
     rfid_router,
     admin_router,
+    inspections_router,
 )
 from .services.websocket_service import websocket_endpoint
 from .services.tracing_service import tracing_middleware
@@ -103,6 +104,7 @@ app.include_router(videos_router)
 app.include_router(images_router)
 app.include_router(rfid_router)
 app.include_router(admin_router)
+app.include_router(inspections_router)
 
 
 @app.websocket("/api/ws")
@@ -118,7 +120,7 @@ async def root():
     if index_file and index_file.exists():
         return index_file.read_text(encoding="utf-8")
     return JSONResponse(content={
-        "name": "域感智能 - 无人机数据管理系统",
+        "name": "域感智能 - 基站数据库",
         "version": "2.0.0",
         "status": "running",
         "docs": "/docs",
@@ -162,13 +164,15 @@ def api_status():
     from .services.websocket_service import manager
     from .services.tracing_service import tracing_service
 
+    from .services.qr_service import _ZBAR_AVAILABLE
+
     return {
         "success": True,
         "data": {
             "status": "ok",
             "active_clients": len(manager.active_connections),
             "services": {
-                "qr_code": "ready",
+                "qr_code": "ready" if _ZBAR_AVAILABLE else "unavailable (libzbar0 not installed)",
                 "backup": "ready",
                 "tracing": "ready",
                 "websocket": "ready"
@@ -181,6 +185,7 @@ def api_status():
                 {"prefix": "/api/videos", "description": "视频管理"},
                 {"prefix": "/api/images", "description": "图片管理"},
                 {"prefix": "/api/rfid", "description": "RFID数据"},
+                {"prefix": "/api/inspections", "description": "巡检查询(树状结构)"},
             ]
         }
     }

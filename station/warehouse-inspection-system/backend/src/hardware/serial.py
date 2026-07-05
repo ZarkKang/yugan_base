@@ -138,7 +138,8 @@ class SerialComm:
 
     @property
     def is_connected(self) -> bool:
-        return self._connected and self.ser is not None and self.ser.is_open
+        # 兼容标准 serial.Serial（有 is_open 属性）和 FdSerial（也有 is_open 属性）
+        return self._connected and self.ser is not None and getattr(self.ser, 'is_open', False)
 
 
 def list_available_ports() -> List[str]:

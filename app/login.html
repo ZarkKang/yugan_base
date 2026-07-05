@@ -96,7 +96,7 @@
         
         <div class="footer">
             默认账号：admin / admin<br>
-            &copy; 2026 域感智能 · 仓库巡检与无人机数据管理平台
+            &copy; 2026 域感智能 · 仓库巡检与基站数据库平台
         </div>
     </div>
 
@@ -136,11 +136,22 @@
             return urlParams.get('token');
         }
         
+        // 获取登录后的重定向地址
+        function getRedirectUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('redirect');
+        }
+
         // 检查 URL 中是否已有 token
         function checkUrlToken() {
             const token = getTokenFromUrl();
             if (token) {
-                window.location.href = `index.html?token=${encodeURIComponent(token)}`;
+                // 优先跳转到 redirect 参数指定的地址，否则默认系统选择页
+                const redirect = getRedirectUrl();
+                const target = redirect || `index.html`;
+                // 确保 target 带上 token
+                const sep = target.includes('?') ? '&' : '?';
+                window.location.href = `${target}${sep}token=${encodeURIComponent(token)}`;
                 return true;
             }
             return false;
@@ -188,10 +199,18 @@
                 const data = await response.json();
                 
                 if (response.ok && data.success) {
-                    // 将 token 通过 URL 参数传递到系统选择页，不使用 localStorage
+                    // 将 token 通过 URL 参数传递，支持 redirect 回调地址
                     const token = data.access_token;
                     const userData = data.user ? `&user=${encodeURIComponent(JSON.stringify(data.user))}` : '';
-                    window.location.href = `index.html?token=${encodeURIComponent(token)}${userData}`;
+                    const redirect = getRedirectUrl();
+                    if (redirect) {
+                        // 跳转回原请求页（如 warehouse 子系统）
+                        const sep = redirect.includes('?') ? '&' : '?';
+                        window.location.href = `${redirect}${sep}token=${encodeURIComponent(token)}${userData}`;
+                    } else {
+                        // 默认跳转系统选择页
+                        window.location.href = `index.html?token=${encodeURIComponent(token)}${userData}`;
+                    }
                 } else {
                     showError(data.message || data.detail || '登录失败，请检查用户名和密码');
                 }

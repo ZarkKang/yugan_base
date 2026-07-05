@@ -4,6 +4,14 @@ from .drone import DroneCreate, DroneUpdate, DroneResponse
 from .video_data import VideoDataCreate, VideoDataUpdate, VideoDataResponse
 from .image_data import ImageDataCreate, ImageDataUpdate, ImageDataResponse
 from .rfid_data import RFIDDataCreate, RFIDDataUpdate, RFIDDataResponse
+from .inspection import (
+    InspectionSessionResponse,
+    TaskResponse,
+    WaypointResponse,
+    InspectionRecordResponse,
+    ShelfResponse,
+    RFIDTagResponse,
+)
 
 __all__ = [
     "UserCreate", "UserUpdate", "UserResponse", "Token",
@@ -12,4 +20,10 @@ __all__ = [
     "VideoDataCreate", "VideoDataUpdate", "VideoDataResponse",
     "ImageDataCreate", "ImageDataUpdate", "ImageDataResponse",
     "RFIDDataCreate", "RFIDDataUpdate", "RFIDDataResponse",
+    "InspectionSessionResponse",
+    "TaskResponse",
+    "WaypointResponse",
+    "InspectionRecordResponse",
+    "ShelfResponse",
+    "RFIDTagResponse",
 ]

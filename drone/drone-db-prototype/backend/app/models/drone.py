@@ -53,3 +53,6 @@ class Drone(Base):
     video_data = relationship("VideoData", back_populates="drone")
     image_data = relationship("ImageData", back_populates="drone")
     rfid_data = relationship("RFIDData", back_populates="drone")
+    # 巡检关联关系
+    inspection_records = relationship("InspectionRecord", back_populates="drone")
+    tasks = relationship("Task", back_populates="drone")

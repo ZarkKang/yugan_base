@@ -480,7 +480,7 @@ class RFIDReader:
 
     def connect(self, port: Optional[str] = None, baudrate: Optional[int] = None) -> bool:
         """连接 PRE RFID读卡器"""
-        if self._connected and self.serial and self.serial.is_connected:
+        if self._connected and self.serial and self.serial.is_connected():
             logger.info("[RFID] 已经连接")
             return True
 
@@ -1252,7 +1252,7 @@ class RFIDReader:
         if self._scan_thread:
             self._scan_thread.join(timeout=2.0)
             self._scan_thread = None
-        if self.serial and self.serial.is_open:
+        if self.serial and self.serial.is_connected:
             try:
                 self.serial.write(self._build_frame(CMD_STOP_MULTI))
             except Exception:

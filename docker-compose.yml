@@ -122,8 +122,10 @@ services:
       - ./station/warehouse-inspection-system/storage:/app/storage
       - warehouse-logs:/app/logs
     devices:
+      # RFID 读卡器串口映射 (可选，设备不存在时不影响启动)
+      # 生产环境可通过环境变量 RFID_DEVICE_PATH 指定实际设备路径
+      - "${RFID_DEVICE_PATH:-/dev/null}:/dev/ttyUSB0"
       # WSL COM端口映射 (Windows COM7 → WSL /dev/ttyS6)
-      # 注意：Linux串口设备（ttyUSB0/1/ACM0）不存在时不映射，避免启动失败
       - "/dev/ttyS6:/dev/ttyS6"
     # 生产安全配置：移除privileged，仅添加串口所需权限
     privileged: false

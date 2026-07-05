@@ -6,6 +6,7 @@ from .videos import router as videos_router
 from .images import router as images_router
 from .rfid import router as rfid_router
 from .admin import router as admin_router
+from .inspections import router as inspections_router
 
 __all__ = [
     "auth_router",
@@ -16,4 +17,5 @@ __all__ = [
     "images_router",
     "rfid_router",
     "admin_router",
+    "inspections_router",
 ]

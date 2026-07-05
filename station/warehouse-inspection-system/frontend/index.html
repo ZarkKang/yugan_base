@@ -375,6 +375,9 @@
             <button class="btn-back" onclick="goToSystemSelection()" title="返回系统选择">← 返回</button>
             <div class="page-title" id="page-title">实时看板</div>
         </div>
+        <div style="background:linear-gradient(90deg,rgba(59,130,246,.15),rgba(139,92,246,.15));border:1px solid rgba(59,130,246,.3);border-radius:6px;padding:6px 14px;font-size:12px;color:var(--text2);margin:0 12px;">
+            功能已迁移至 <a href="javascript:void(0)" onclick="goToDroneDB()" style="color:var(--blue);font-weight:600;text-decoration:underline;">基站数据库</a>，本页面仅作备用
+        </div>
         <div class="actions">
             <!-- 系统切换下拉菜单 -->
             <div class="system-switch">
@@ -385,7 +388,7 @@
                 <div class="system-dropdown" id="system-dropdown">
                     <div class="system-dropdown-item" onclick="switchToDrone()">
                         <span class="icon">✈</span>
-                        <span>无人机数据管理系统</span>
+                        <span>基站数据库</span>
                     </div>
                     <div class="system-dropdown-item active">
                         <span class="icon">◈</span>
@@ -460,10 +463,11 @@ async function api(url, opts={}) {
     const h = { 'Content-Type':'application/json', ...opts.headers };
     if (TOKEN) h['Authorization'] = `Bearer ${TOKEN}`;
     const res = await fetch(url, { ...opts, headers: h });
-    if (res.status === 401) { 
-        // 开发模式：不跳转登录页，仅提示
-        console.warn('[api] 401 未授权，开发模式下忽略');
-        throw new Error('请求未授权（开发模式）'); 
+    if (res.status === 401) {
+        // Token 失效或缺失，跳转登录页
+        console.warn('[api] 401 未授权，跳转登录页');
+        redirectToLogin();
+        throw new Error('未授权，正在跳转登录页');
     }
     if (!res.ok) {
         const e = await res.json().catch(()=>({message:res.statusText}));
@@ -471,6 +475,12 @@ async function api(url, opts={}) {
         throw new Error(msg);
     }
     return res.json();
+}
+
+// 跳转到统一登录页（带回调地址）
+function redirectToLogin() {
+    const currentUrl = window.location.href;
+    window.location.href = `/app/login.html?redirect=${encodeURIComponent(currentUrl)}`;
 }
 
 function fmtTime(ts) { if (!ts) return '-'; return new Date(ts).toLocaleString('zh-CN',{hour12:false}); }
@@ -516,6 +526,14 @@ function goToSystemSelection() {
     // 返回系统选择页（动态路径）
     const isHttp = window.location.protocol.startsWith('http');
     window.location.href = isHttp ? '/app/index.html' : '../../app/index.html';
+}
+
+// 跳转到整合后的基站数据库前端（携带 token）
+function goToDroneDB() {
+    const isHttp = window.location.protocol.startsWith('http');
+    const base = isHttp ? '/drone/' : '../../../../drone/drone-db-prototype/frontend/src/index.html';
+    const url = TOKEN ? `${base}?token=${encodeURIComponent(TOKEN)}` : base;
+    window.open(url, '_blank');
 }
 
 // 系统切换下拉菜单控制
@@ -651,6 +669,9 @@ async function loadDashboard() {
 // ═══════════════════ PAGE: DRONES ═══════════════════
 async function render_drones(el) {
     el.innerHTML = `
+        <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--text2);">
+            此页面功能已整合至 <a href="javascript:void(0)" onclick="goToDroneDB()" style="color:var(--blue);font-weight:600;">基站数据库 → 无人机管理</a>，本页面仅作备用
+        </div>
         <div class="panel">
             <div class="panel-header">
                 <span>无人机列表</span>
@@ -841,6 +862,9 @@ async function viewTaskDetail(code) {
 // ═══════════════════ PAGE: RECORDS ═══════════════════
 async function render_records(el) {
     el.innerHTML = `
+        <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--text2);">
+            此页面功能已整合至 <a href="javascript:void(0)" onclick="goToDroneDB()" style="color:var(--blue);font-weight:600;">基站数据库 → 巡检数据</a>（含会话树+归档），本页面仅作备用
+        </div>
         <div class="panel"><div class="panel-header"><span>巡检记录</span> <span class="count" id="record-count"></span></div>
         <div style="overflow-x:auto"><table><thead><tr><th>记录编号</th><th>无人机</th><th>货架</th><th>状态</th><th>RFID</th><th>二维码</th><th>匹配</th><th>巡检时间</th></tr></thead><tbody id="record-tbody"></tbody></table></div></div>`;
     await loadRecords();
@@ -921,6 +945,9 @@ async function deleteShelf(id) { if (!confirm('确认删除该货架？')) retur
 // ═══════════════════ PAGE: SKUS ═══════════════════
 async function render_skus(el) {
     el.innerHTML = `
+        <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--text2);">
+            此页面功能已整合至 <a href="javascript:void(0)" onclick="goToDroneDB()" style="color:var(--blue);font-weight:600;">基站数据库 → SKU 管理</a>，本页面仅作备用
+        </div>
         <div class="panel"><div class="panel-header"><span>SKU 列表</span><span class="count" id="sku-count"></span></div>
         <div style="overflow-x:auto"><table><thead><tr><th>SKU</th><th>名称</th><th>位置</th><th>数量</th><th>操作</th></tr></thead><tbody id="sku-tbody"></tbody></table></div></div>
         <div id="rfid-bind-modal" class="modal" style="display:none"><div class="modal-bg" onclick="closeBindModal()"></div><div class="modal-card"><div class="modal-header">RFID标签绑定 <span class="close" onclick="closeBindModal()">✕</span></div>
@@ -1004,6 +1031,9 @@ async function doRFIDBind() {
 // ═══════════════════ PAGE: IMAGES ═══════════════════
 async function render_images(el) {
     el.innerHTML = `
+        <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--text2);">
+            此页面功能已整合至 <a href="javascript:void(0)" onclick="goToDroneDB()" style="color:var(--blue);font-weight:600;">基站数据库 → 图片数据</a>，本页面仅作备用
+        </div>
         <div class="panel"><div class="panel-header"><span>图像列表</span> <span class="count" id="img-count"></span></div>
         <div class="img-grid" id="img-grid" style="padding:12px;"><div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:24px;">加载中...</div></div></div>
         <div class="panel" style="margin-top:16px;"><div class="panel-header"><span>上传图像</span></div>
@@ -1073,6 +1103,9 @@ async function uploadImage() {
 // ═══════════════════ PAGE: VIDEOS ═══════════════════
 async function render_videos(el) {
     el.innerHTML = `
+        <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--text2);">
+            此页面功能已整合至 <a href="javascript:void(0)" onclick="goToDroneDB()" style="color:var(--blue);font-weight:600;">基站数据库 → 视频数据</a>，本页面仅作备用
+        </div>
         <div class="panel"><div class="panel-header"><span>视频列表</span> <span class="count" id="vid-count"></span></div>
         <div class="img-grid" id="vid-grid" style="padding:12px;"><div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:24px;">加载中...</div></div></div>
         <div class="panel" style="margin-top:16px;"><div class="panel-header"><span>上传视频</span></div>
@@ -2435,8 +2468,12 @@ async function diLoadLogs() {
 }
 
 // ═══════════════════ INIT ═══════════════════
-// 开发模式：跳过登录验证，直接显示应用
-showApp();
+// 认证检查：无 token 时跳转登录页
+if (!TOKEN) {
+    redirectToLogin();
+} else {
+    showApp();
+}
 </script>
 </body>
 </html>
